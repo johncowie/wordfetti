@@ -6,4 +6,5 @@ export interface GameStore {
   getGameByJoinCode(joinCode: string): Promise<Game | null>
   joinGame(joinCode: string, name: string, team: Team): Promise<Player>
   subscribe(joinCode: string, callback: (game: Game) => void): () => void
+  startGame(joinCode: string): Promise<Game>
 }

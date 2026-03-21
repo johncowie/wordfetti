@@ -15,6 +15,7 @@ const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
   getGameByJoinCode: async () => null,
   joinGame: async () => ({ id: 'p1', name: 'Test', team: 1 as const }),
   subscribe: () => () => {},
+  startGame: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [] }),
   ...overrides,
 })
 
@@ -145,6 +146,82 @@ describe('POST /api/games/:joinCode/players', () => {
     const store = mockStore({ joinGame: async () => { throw new AppError('NOT_FOUND', 'Game not found') } })
     const res = await request(buildApp(store)).post('/XXXXXX/players').send({ name: 'Bob', team: 1 })
     expect(res.status).toBe(404)
+  })
+
+  it('returns 409 when the game has already started', async () => {
+    const store = mockStore({
+      joinGame: async () => { throw new AppError('GAME_IN_PROGRESS', 'Game has already started') },
+    })
+    const res = await request(buildApp(store))
+      .post('/ABC123/players')
+      .send({ name: 'Alice', team: 1 })
+    expect(res.status).toBe(409)
+  })
+})
+
+describe('POST /api/games/:joinCode/start', () => {
+  const hostId = 'host-player-id'
+  const baseGame = {
+    id: 'g1',
+    joinCode: 'ABC123',
+    status: 'lobby' as const,
+    players: [
+      { id: hostId, name: 'Alice', team: 1 as const },
+      { id: 'p2', name: 'Bob', team: 1 as const },
+      { id: 'p3', name: 'Carol', team: 2 as const },
+      { id: 'p4', name: 'Dave', team: 2 as const },
+    ],
+    hostId,
+  }
+
+  it('returns 404 when the game is not found', async () => {
+    const store = mockStore({ getGameByJoinCode: async () => null })
+    const res = await request(buildApp(store))
+      .post('/ABC123/start')
+      .send({ playerId: hostId })
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 403 when the caller is not the host', async () => {
+    const store = mockStore({ getGameByJoinCode: async () => baseGame })
+    const res = await request(buildApp(store))
+      .post('/ABC123/start')
+      .send({ playerId: 'not-the-host' })
+    expect(res.status).toBe(403)
+  })
+
+  it('returns 403 when no playerId is provided', async () => {
+    const store = mockStore({ getGameByJoinCode: async () => baseGame })
+    const res = await request(buildApp(store)).post('/ABC123/start').send({})
+    expect(res.status).toBe(403)
+  })
+
+  it('returns 422 when a team has fewer than 2 players', async () => {
+    const shortGame = {
+      ...baseGame,
+      players: [
+        { id: hostId, name: 'Alice', team: 1 as const },
+        { id: 'p3', name: 'Carol', team: 2 as const },
+      ],
+    }
+    const store = mockStore({ getGameByJoinCode: async () => shortGame })
+    const res = await request(buildApp(store))
+      .post('/ABC123/start')
+      .send({ playerId: hostId })
+    expect(res.status).toBe(422)
+  })
+
+  it('returns 200 with the updated game when valid', async () => {
+    const started = { ...baseGame, status: 'in_progress' as const }
+    const store = mockStore({
+      getGameByJoinCode: async () => baseGame,
+      startGame: async () => started,
+    })
+    const res = await request(buildApp(store))
+      .post('/ABC123/start')
+      .send({ playerId: hostId })
+    expect(res.status).toBe(200)
+    expect(res.body.status).toBe('in_progress')
   })
 })
 

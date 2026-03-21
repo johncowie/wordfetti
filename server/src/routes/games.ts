@@ -85,6 +85,31 @@ export function createGamesRouter(store: GameStore): Router {
     }
   })
 
+  // POST /:joinCode/start — host starts the game
+  router.post('/:joinCode/start', async (req, res, next) => {
+    try {
+      const joinCode = req.params.joinCode.toUpperCase()
+      const { playerId } = req.body ?? {}
+
+      const game = await store.getGameByJoinCode(joinCode)
+      if (!game) return res.status(404).json({ error: 'Game not found' })
+      if (game.hostId === undefined || game.hostId !== playerId) {
+        return res.status(403).json({ error: 'Only the host can start the game' })
+      }
+
+      const team1 = game.players.filter((p) => p.team === 1)
+      const team2 = game.players.filter((p) => p.team === 2)
+      if (team1.length < 2 || team2.length < 2) {
+        return res.status(422).json({ error: 'Both teams need at least 2 players to start' })
+      }
+
+      const updated = await store.startGame(joinCode)
+      res.json(updated)
+    } catch (err) {
+      next(err)
+    }
+  })
+
   // POST /:joinCode/players — join an existing game
   router.post('/:joinCode/players', async (req, res, next) => {
     try {
@@ -101,6 +126,9 @@ export function createGamesRouter(store: GameStore): Router {
     } catch (err: unknown) {
       if (err instanceof AppError && err.code === 'NOT_FOUND') {
         return res.status(404).json({ error: 'Game not found' })
+      }
+      if (err instanceof AppError && err.code === 'GAME_IN_PROGRESS') {
+        return res.status(409).json({ error: 'This game has already started' })
       }
       next(err)
     }

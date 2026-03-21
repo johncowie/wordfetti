@@ -34,6 +34,9 @@ export class InMemoryGameStore implements GameStore {
   async createGameWithHost(name: string, team: Team): Promise<{ game: Game; player: Player }> {
     const game = await this.createGame()
     const player = await this.joinGame(game.joinCode, name, team)
+    // Record the host on the internal game object
+    const internal = this.games.get(game.joinCode)!
+    internal.hostId = player.id
     const updated = await this.getGameByJoinCode(game.joinCode)
     return { game: updated!, player }
   }
@@ -47,11 +50,21 @@ export class InMemoryGameStore implements GameStore {
   async joinGame(joinCode: string, name: string, team: Team): Promise<Player> {
     const game = this.games.get(joinCode)
     if (!game) throw new AppError('NOT_FOUND', 'Game not found')
+    if (game.status !== 'lobby') throw new AppError('GAME_IN_PROGRESS', 'Game has already started')
     const player: Player = { id: randomUUID(), name, team }
     game.players.push(player)
     const snapshot = { ...game, players: [...game.players] }
     this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
     return { ...player }
+  }
+
+  async startGame(joinCode: string): Promise<Game> {
+    const game = this.games.get(joinCode)
+    if (!game) throw new AppError('NOT_FOUND', 'Game not found')
+    game.status = 'in_progress'
+    const snapshot = { ...game, players: [...game.players] }
+    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
+    return snapshot
   }
 
   subscribe(joinCode: string, callback: (game: Game) => void): () => void {

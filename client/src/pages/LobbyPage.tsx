@@ -9,6 +9,7 @@ export function LobbyPage() {
   const [game, setGame] = useState<Game | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [startError, setStartError] = useState<string | null>(null)
   // useState initialiser avoids calling loadSession on every render
   const [session] = useState(() => loadSession())
   const currentPlayerId =
@@ -51,6 +52,21 @@ export function LobbyPage() {
     }
     return () => es.close()
   }, [joinCode])
+
+  async function handleStartGame() {
+    if (!joinCode || !session) return
+    setStartError(null)
+    const res = await fetch(`/api/games/${joinCode}/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId: session.playerId }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      setStartError(body.error ?? 'Something went wrong. Please try again.')
+    }
+    // On success, SSE pushes the updated game status automatically
+  }
 
   function copyCode() {
     if (!joinCode) return
@@ -132,7 +148,26 @@ export function LobbyPage() {
         </div>
 
         {/* Context-aware footer */}
-        {needsMorePlayers && (
+        {currentPlayerId === game.hostId && (
+          <div className="mt-6 flex flex-col items-center gap-2">
+            <button
+              onClick={handleStartGame}
+              disabled={needsMorePlayers}
+              className="rounded-xl bg-brand-coral px-8 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+            >
+              Start Game
+            </button>
+            {needsMorePlayers && (
+              <p className="text-center text-sm text-gray-400">
+                Both teams need at least 2 players to start
+              </p>
+            )}
+            {startError && (
+              <p role="alert" className="text-center text-sm text-red-500">{startError}</p>
+            )}
+          </div>
+        )}
+        {currentPlayerId !== game.hostId && needsMorePlayers && (
           <p className="mt-6 text-center text-sm text-gray-400">
             Waiting for more players...
           </p>

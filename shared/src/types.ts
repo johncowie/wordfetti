@@ -11,4 +11,5 @@ export type Game = {
   joinCode: string
   status: 'lobby' | 'in_progress' | 'finished'
   players: Player[]
+  hostId?: string
 }

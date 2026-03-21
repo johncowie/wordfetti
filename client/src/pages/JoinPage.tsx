@@ -34,6 +34,10 @@ export function JoinPage() {
         setError('Game not found. Check the code and try again.')
         return
       }
+      if (res.status === 409) {
+        setError('This game has already started.')
+        return
+      }
       if (!res.ok) throw new Error(`Unexpected response: ${res.status}`)
       const { player } = await res.json()
       saveSession({ playerId: player.id, joinCode })
