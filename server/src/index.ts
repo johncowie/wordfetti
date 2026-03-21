@@ -1,0 +1,31 @@
+import express from 'express'
+import cors from 'cors'
+import helmet from 'helmet'
+import rateLimit from 'express-rate-limit'
+import { dirname, join } from 'path'
+import { fileURLToPath } from 'url'
+import { InMemoryGameStore } from './store/InMemoryGameStore.js'
+import { createGamesRouter } from './routes/games.js'
+
+const app = express()
+const store = new InMemoryGameStore()
+
+const corsOrigin = process.env.CORS_ORIGIN ?? 'http://localhost:5173'
+app.use(helmet())
+app.use(cors({ origin: corsOrigin }))
+app.use(express.json())
+
+const apiLimiter = rateLimit({ windowMs: 60_000, max: 20 })
+app.use('/api', apiLimiter)
+app.use('/api/games', createGamesRouter(store))
+
+app.get('/health', (_req, res) => res.sendStatus(200))
+
+if (process.env.NODE_ENV === 'production') {
+  const dir = join(dirname(fileURLToPath(import.meta.url)), '../../public')
+  app.use(express.static(dir))
+  app.get('*', (_req, res) => res.sendFile(join(dir, 'index.html')))
+}
+
+const PORT = process.env.PORT ?? 3000
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`))

@@ -1,0 +1,13 @@
+{
+  "name": "wordfetti",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter server dev\" \"pnpm --filter client dev\"",
+    "build": "pnpm --filter shared build && pnpm --filter server build && pnpm --filter client build",
+    "test": "pnpm --filter server test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
