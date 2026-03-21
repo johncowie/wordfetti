@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import request from 'supertest'
 import express from 'express'
+import http from 'http'
+import type { AddressInfo } from 'net'
 import { createGamesRouter } from './games.js'
 import type { GameStore } from '../store/GameStore.js'
 import type { Game } from '@wordfetti/shared'
@@ -27,6 +29,18 @@ function buildApp(store: GameStore) {
     res.status(500).json({ error: 'internal server error' })
   })
   return app
+}
+
+// Starts the app on a random port, runs fn(port), then closes the server.
+// Used for SSE tests where supertest's .parse() types the response incorrectly.
+function withServer(app: express.Application, fn: (port: number) => Promise<void>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer(app)
+    server.listen(0, () => {
+      const { port } = server.address() as AddressInfo
+      fn(port).finally(() => server.close((err) => (err ? reject(err) : resolve())))
+    })
+  })
 }
 
 describe('POST /api/games', () => {
@@ -239,32 +253,42 @@ describe('GET /api/games/:joinCode/events', () => {
   it('returns text/event-stream content type for a known join code', async () => {
     const game = { id: 'g1', joinCode: 'ABC123', status: 'lobby' as const, players: [] }
     const store = mockStore({ getGameByJoinCode: async () => game })
-    const res = await request(buildApp(store))
-      .get('/ABC123/events')
-      .parse((res, callback) => {
-        // Destroy immediately — we only need headers, not body
-        res.destroy()
-        callback(null, null)
+    await withServer(buildApp(store), (port) =>
+      new Promise<void>((resolve, reject) => {
+        const req = http.get(`http://localhost:${port}/ABC123/events`, (res) => {
+          expect(res.headers['content-type']).toMatch(/text\/event-stream/)
+          req.destroy()
+          resolve()
+        })
+        req.on('error', (err: NodeJS.ErrnoException) => {
+          if (err.code !== 'ECONNRESET') reject(err)
+        })
       })
-    expect(res.headers['content-type']).toMatch(/text\/event-stream/)
+    )
   })
 
   it('sends the current game state as the first data line', async () => {
     const game = { id: 'g1', joinCode: 'ABC123', status: 'lobby' as const, players: [] }
     const store = mockStore({ getGameByJoinCode: async () => game })
-    const res = await request(buildApp(store))
-      .get('/ABC123/events')
-      .parse((res, callback) => {
-        let buffer = ''
-        res.on('data', (chunk: Buffer) => {
-          buffer += chunk.toString()
-          // Destroy after receiving the first complete SSE event (ends with \n\n)
-          if (buffer.includes('\n\n')) res.destroy()
+    await withServer(buildApp(store), (port) =>
+      new Promise<void>((resolve, reject) => {
+        const req = http.get(`http://localhost:${port}/ABC123/events`, (res) => {
+          let buffer = ''
+          res.on('data', (chunk: Buffer) => {
+            buffer += chunk.toString()
+            // Destroy after receiving the first complete SSE event (ends with \n\n)
+            if (buffer.includes('\n\n')) {
+              req.destroy()
+              expect(buffer).toContain(`data: ${JSON.stringify(game)}`)
+              resolve()
+            }
+          })
         })
-        res.on('close', () => callback(null, buffer))
+        req.on('error', (err: NodeJS.ErrnoException) => {
+          if (err.code !== 'ECONNRESET') reject(err)
+        })
       })
-    // Custom parse callbacks set res.body (not res.text)
-    expect(res.body).toContain(`data: ${JSON.stringify(game)}`)
+    )
   })
 
   it('calls the unsubscribe function when the connection closes', async () => {
@@ -278,15 +302,13 @@ describe('GET /api/games/:joinCode/events', () => {
       getGameByJoinCode: async () => game,
       subscribe: () => unsubscribe,
     })
-    // Start the request but don't await — we wait on unsubscribed instead
-    request(buildApp(store))
-      .get('/ABC123/events')
-      .parse((res, callback) => {
-        res.on('data', () => res.destroy())
-        res.on('close', () => callback(null, null))
+    await withServer(buildApp(store), (port) => {
+      const req = http.get(`http://localhost:${port}/ABC123/events`, (res) => {
+        res.on('data', () => req.destroy())
       })
-      .catch(() => {})
-    await unsubscribed
+      req.on('error', () => {})
+      return unsubscribed
+    })
     expect(unsubscribe).toHaveBeenCalledOnce()
   })
 })
