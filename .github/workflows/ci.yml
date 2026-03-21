@@ -12,6 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - run: npm install
+      - run: npm install -g pnpm 
       - run: pnpm build
       - run: pnpm test
 
