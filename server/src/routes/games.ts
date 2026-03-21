@@ -51,6 +51,40 @@ export function createGamesRouter(store: GameStore): Router {
     }
   })
 
+  // GET /:joinCode/events — SSE stream of game state updates
+  router.get('/:joinCode/events', async (req, res, next) => {
+    try {
+      const joinCode = req.params.joinCode.toUpperCase()
+
+      // Existence check before committing to SSE (can still return a normal 404)
+      if (!await store.getGameByJoinCode(joinCode)) {
+        return res.status(404).json({ error: 'Game not found' })
+      }
+
+      res.setHeader('Content-Type', 'text/event-stream')
+      res.setHeader('Cache-Control', 'no-cache')
+      res.setHeader('Connection', 'keep-alive')
+      res.flushHeaders()
+
+      // Subscribe BEFORE fetching the snapshot so any player join that occurs
+      // in the gap between the two store calls is not silently missed.
+      const unsubscribe = store.subscribe(joinCode, (updatedGame) => {
+        res.write(`data: ${JSON.stringify(updatedGame)}\n\n`)
+      })
+
+      // Fetch a fresh snapshot after subscribing; any concurrent join is now
+      // either captured by the callback above or already in this snapshot.
+      const snapshot = (await store.getGameByJoinCode(joinCode))!
+      res.write(`data: ${JSON.stringify(snapshot)}\n\n`)
+
+      req.on('close', () => {
+        unsubscribe()
+      })
+    } catch (err) {
+      next(err)
+    }
+  })
+
   // POST /:joinCode/players — join an existing game
   router.post('/:joinCode/players', async (req, res, next) => {
     try {

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import request from 'supertest'
 import express from 'express'
 import { createGamesRouter } from './games.js'
@@ -14,6 +14,7 @@ const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
   }),
   getGameByJoinCode: async () => null,
   joinGame: async () => ({ id: 'p1', name: 'Test', team: 1 as const }),
+  subscribe: () => () => {},
   ...overrides,
 })
 
@@ -144,5 +145,71 @@ describe('POST /api/games/:joinCode/players', () => {
     const store = mockStore({ joinGame: async () => { throw new AppError('NOT_FOUND', 'Game not found') } })
     const res = await request(buildApp(store)).post('/XXXXXX/players').send({ name: 'Bob', team: 1 })
     expect(res.status).toBe(404)
+  })
+})
+
+// SSE tests require careful stream handling: the endpoint never terminates the
+// connection server-side, so tests must destroy the response after receiving
+// the data they need in order to avoid hanging the test runner.
+describe('GET /api/games/:joinCode/events', () => {
+  it('returns 404 for an unknown join code', async () => {
+    // Short-lived non-streaming response — no special handling needed
+    const store = mockStore({ getGameByJoinCode: async () => null })
+    const res = await request(buildApp(store)).get('/XXXXXX/events')
+    expect(res.status).toBe(404)
+  })
+
+  it('returns text/event-stream content type for a known join code', async () => {
+    const game = { id: 'g1', joinCode: 'ABC123', status: 'lobby' as const, players: [] }
+    const store = mockStore({ getGameByJoinCode: async () => game })
+    const res = await request(buildApp(store))
+      .get('/ABC123/events')
+      .parse((res, callback) => {
+        // Destroy immediately — we only need headers, not body
+        res.destroy()
+        callback(null, null)
+      })
+    expect(res.headers['content-type']).toMatch(/text\/event-stream/)
+  })
+
+  it('sends the current game state as the first data line', async () => {
+    const game = { id: 'g1', joinCode: 'ABC123', status: 'lobby' as const, players: [] }
+    const store = mockStore({ getGameByJoinCode: async () => game })
+    const res = await request(buildApp(store))
+      .get('/ABC123/events')
+      .parse((res, callback) => {
+        let buffer = ''
+        res.on('data', (chunk: Buffer) => {
+          buffer += chunk.toString()
+          // Destroy after receiving the first complete SSE event (ends with \n\n)
+          if (buffer.includes('\n\n')) res.destroy()
+        })
+        res.on('close', () => callback(null, buffer))
+      })
+    // Custom parse callbacks set res.body (not res.text)
+    expect(res.body).toContain(`data: ${JSON.stringify(game)}`)
+  })
+
+  it('calls the unsubscribe function when the connection closes', async () => {
+    const game = { id: 'g1', joinCode: 'ABC123', status: 'lobby' as const, players: [] }
+    // The server-side req.on('close') fires asynchronously after the client destroys
+    // the socket. Use a Promise so we wait for it rather than checking immediately.
+    let resolveUnsubscribed!: () => void
+    const unsubscribed = new Promise<void>((resolve) => { resolveUnsubscribed = resolve })
+    const unsubscribe = vi.fn(resolveUnsubscribed)
+    const store = mockStore({
+      getGameByJoinCode: async () => game,
+      subscribe: () => unsubscribe,
+    })
+    // Start the request but don't await — we wait on unsubscribed instead
+    request(buildApp(store))
+      .get('/ABC123/events')
+      .parse((res, callback) => {
+        res.on('data', () => res.destroy())
+        res.on('close', () => callback(null, null))
+      })
+      .catch(() => {})
+    await unsubscribed
+    expect(unsubscribe).toHaveBeenCalledOnce()
   })
 })

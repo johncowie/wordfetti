@@ -30,6 +30,28 @@ export function LobbyPage() {
     return () => controller.abort()
   }, [joinCode])
 
+  // The initial fetch effect (above) is the authority for error display (404 etc.)
+  // and provides the first render of game state. This effect opens the live SSE
+  // stream for real-time updates. The SSE endpoint also sends the current game
+  // state immediately on connect, so any staleness from the initial fetch is
+  // self-corrected without a separate round-trip.
+  useEffect(() => {
+    if (!joinCode) return
+    const es = new EventSource(`/api/games/${joinCode}/events`)
+    es.onmessage = (event) => {
+      setGame(JSON.parse(event.data) as Game)
+    }
+    es.onerror = (event) => {
+      // Close the connection to stop EventSource's automatic retry loop.
+      // Without this, a 404 or server error causes the browser to hammer the
+      // /events endpoint repeatedly, exhausting the shared rate limiter.
+      // The initial fetch effect already shows the appropriate error state.
+      console.warn(`[lobby] SSE connection error for game ${joinCode}`, event)
+      es.close()
+    }
+    return () => es.close()
+  }, [joinCode])
+
   function copyCode() {
     if (!joinCode) return
     navigator.clipboard.writeText(joinCode).then(() => {

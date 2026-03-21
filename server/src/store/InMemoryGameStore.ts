@@ -8,6 +8,7 @@ const MAX_JOIN_CODE_ATTEMPTS = 10
 
 export class InMemoryGameStore implements GameStore {
   private readonly games = new Map<string, Game>()
+  private readonly subscribers = new Map<string, Set<(game: Game) => void>>()
 
   async createGame(): Promise<Game> {
     let joinCode: string
@@ -48,6 +49,22 @@ export class InMemoryGameStore implements GameStore {
     if (!game) throw new AppError('NOT_FOUND', 'Game not found')
     const player: Player = { id: randomUUID(), name, team }
     game.players.push(player)
+    const snapshot = { ...game, players: [...game.players] }
+    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
     return { ...player }
+  }
+
+  subscribe(joinCode: string, callback: (game: Game) => void): () => void {
+    if (!this.subscribers.has(joinCode)) {
+      this.subscribers.set(joinCode, new Set())
+    }
+    this.subscribers.get(joinCode)!.add(callback)
+    return () => {
+      const subs = this.subscribers.get(joinCode)
+      if (!subs) return
+      subs.delete(callback)
+      // Prune the Set entry once empty to avoid accumulating orphaned map entries
+      if (subs.size === 0) this.subscribers.delete(joinCode)
+    }
   }
 }

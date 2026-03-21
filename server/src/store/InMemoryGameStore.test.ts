@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { InMemoryGameStore } from './InMemoryGameStore.js'
+import type { Game } from '@wordfetti/shared'
 
 describe('InMemoryGameStore', () => {
   it('creates a game with a 6-character join code using only valid characters', async () => {
@@ -71,5 +72,49 @@ describe('createGameWithHost', () => {
     const fetched = await store.getGameByJoinCode(game.joinCode)
     expect(fetched?.players).toHaveLength(1)
     expect(fetched?.players[0].name).toBe('Alice')
+  })
+})
+
+describe('subscribe', () => {
+  it('calls the callback with the updated game when a player joins', async () => {
+    const store = new InMemoryGameStore()
+    const game = await store.createGame()
+    const updates: Game[] = []
+    store.subscribe(game.joinCode, (g) => updates.push(g))
+    await store.joinGame(game.joinCode, 'Alice', 1)
+    expect(updates).toHaveLength(1)
+    expect(updates[0].players[0].name).toBe('Alice')
+  })
+
+  it('does not call the callback after unsubscribe', async () => {
+    const store = new InMemoryGameStore()
+    const game = await store.createGame()
+    const updates: Game[] = []
+    const unsub = store.subscribe(game.joinCode, (g) => updates.push(g))
+    unsub()
+    await store.joinGame(game.joinCode, 'Alice', 1)
+    expect(updates).toHaveLength(0)
+  })
+
+  it('does not call callbacks for a different game', async () => {
+    const store = new InMemoryGameStore()
+    const game1 = await store.createGame()
+    const game2 = await store.createGame()
+    const updates: Game[] = []
+    store.subscribe(game1.joinCode, (g) => updates.push(g))
+    await store.joinGame(game2.joinCode, 'Alice', 1)
+    expect(updates).toHaveLength(0)
+  })
+
+  it('delivered snapshot is not mutated by a subsequent join', async () => {
+    const store = new InMemoryGameStore()
+    const game = await store.createGame()
+    const updates: Game[] = []
+    store.subscribe(game.joinCode, (g) => updates.push(g))
+    await store.joinGame(game.joinCode, 'Alice', 1)
+    await store.joinGame(game.joinCode, 'Bob', 2)
+    // First snapshot must still reflect only Alice
+    expect(updates[0].players).toHaveLength(1)
+    expect(updates[0].players[0].name).toBe('Alice')
   })
 })
