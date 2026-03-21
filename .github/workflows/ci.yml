@@ -1,0 +1,22 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: pnpm install
+      - run: pnpm build
+      - run: pnpm test
+
+  deploy:
+    needs: [ build ]
+    runs-on: self-hosted
+    steps:
+      - name: Deploy
+        run: bash /home/anthony/sideProjects/wordfetti/scripts/deploy.sh
