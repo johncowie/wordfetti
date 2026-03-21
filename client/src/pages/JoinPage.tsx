@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { Team } from '@wordfetti/shared'
 import { Logo } from '../components/Logo'
 import { TeamSelector } from '../components/TeamSelector'
@@ -7,7 +7,8 @@ import { saveSession } from '../session'
 
 export function JoinPage() {
   const navigate = useNavigate()
-  const [code, setCode] = useState('')
+  const [searchParams] = useSearchParams()
+  const [code, setCode] = useState(() => (searchParams.get('code') ?? '').toUpperCase())
   const [name, setName] = useState('')
   const [team, setTeam] = useState<Team | null>(null)
   const [loading, setLoading] = useState(false)
