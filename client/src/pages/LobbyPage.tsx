@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import type { Game, Player } from '@wordfetti/shared'
 import { Logo } from '../components/Logo'
 import { loadSession } from '../session'
 
 export function LobbyPage() {
   const { joinCode } = useParams<{ joinCode: string }>()
+  const navigate = useNavigate()
   const [game, setGame] = useState<Game | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -146,6 +147,18 @@ export function LobbyPage() {
             colorScheme="teal"
           />
         </div>
+
+        {/* Add Words button for current player */}
+        {currentPlayerId && (
+          <div className="mt-4">
+            <button
+              onClick={() => navigate(`/game/${joinCode}/words`)}
+              className="w-full rounded-xl bg-brand-teal px-6 py-3.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+            >
+              Add Words
+            </button>
+          </div>
+        )}
 
         {/* Context-aware footer */}
         {currentPlayerId === game.hostId && (

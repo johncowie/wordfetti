@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import type { Game, Player, Team } from '@wordfetti/shared'
+import { WORDS_PER_PLAYER, type Game, type Player, type Team, type Word } from '@wordfetti/shared'
 import type { GameStore } from './GameStore.js'
 import { generateJoinCode } from './joinCode.js'
 import { AppError } from '../errors.js'
@@ -9,6 +9,7 @@ const MAX_JOIN_CODE_ATTEMPTS = 10
 export class InMemoryGameStore implements GameStore {
   private readonly games = new Map<string, Game>()
   private readonly subscribers = new Map<string, Set<(game: Game) => void>>()
+  private readonly words = new Map<string, Word[]>()
 
   async createGame(): Promise<Game> {
     let joinCode: string
@@ -79,5 +80,29 @@ export class InMemoryGameStore implements GameStore {
       // Prune the Set entry once empty to avoid accumulating orphaned map entries
       if (subs.size === 0) this.subscribers.delete(joinCode)
     }
+  }
+
+  async addWord(joinCode: string, playerId: string, text: string): Promise<Word> {
+    const game = this.games.get(joinCode)
+    if (!game) throw new AppError('NOT_FOUND', 'Game not found')
+    if (game.status !== 'lobby') throw new AppError('GAME_NOT_IN_LOBBY', 'Game is not in lobby')
+    const player = game.players.find((p) => p.id === playerId)
+    if (!player) throw new AppError('FORBIDDEN', 'Player not in game')
+    const key = `${joinCode}:${playerId}`
+    const playerWords = this.words.get(key) ?? []
+    if (playerWords.length >= WORDS_PER_PLAYER) {
+      throw new AppError('WORD_LIMIT_REACHED', 'Word limit reached')
+    }
+    const word: Word = { id: randomUUID(), text: text.trim() }
+    this.words.set(key, [...playerWords, word])
+    return { ...word }
+  }
+
+  async getWords(joinCode: string, playerId: string): Promise<Word[]> {
+    const game = this.games.get(joinCode)
+    if (!game) throw new AppError('NOT_FOUND', 'Game not found')
+    const player = game.players.find((p) => p.id === playerId)
+    if (!player) throw new AppError('FORBIDDEN', 'Player not in game')
+    return [...(this.words.get(`${joinCode}:${playerId}`) ?? [])]
   }
 }

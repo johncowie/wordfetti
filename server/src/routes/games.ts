@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import type { GameStore } from '../store/GameStore.js'
-import type { Team } from '@wordfetti/shared'
+import { WORDS_PER_PLAYER, type Team } from '@wordfetti/shared'
 import { AppError } from '../errors.js'
 
 function isValidTeam(value: unknown): value is Team {
@@ -8,6 +8,10 @@ function isValidTeam(value: unknown): value is Team {
 }
 
 function isValidName(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && value.trim().length <= 50
+}
+
+function isValidWordText(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.trim().length <= 50
 }
 
@@ -106,6 +110,57 @@ export function createGamesRouter(store: GameStore): Router {
       const updated = await store.startGame(joinCode)
       res.json(updated)
     } catch (err) {
+      next(err)
+    }
+  })
+
+  // POST /:joinCode/words — submit a word for the current player
+  router.post('/:joinCode/words', async (req, res, next) => {
+    try {
+      const joinCode = req.params.joinCode.toUpperCase()
+      const { playerId, text } = req.body ?? {}
+      if (typeof playerId !== 'string' || !playerId) {
+        return res.status(400).json({ error: 'playerId is required' })
+      }
+      if (!isValidWordText(text)) {
+        return res.status(400).json({ error: 'Word must be between 1 and 50 characters' })
+      }
+      const word = await store.addWord(joinCode, playerId, text)
+      return res.status(201).json({ word })
+    } catch (err: unknown) {
+      if (err instanceof AppError && err.code === 'NOT_FOUND') {
+        return res.status(404).json({ error: 'Game not found' })
+      }
+      if (err instanceof AppError && err.code === 'FORBIDDEN') {
+        return res.status(403).json({ error: 'Player not in game' })
+      }
+      if (err instanceof AppError && err.code === 'WORD_LIMIT_REACHED') {
+        return res.status(409).json({ error: `You can only submit ${WORDS_PER_PLAYER} words` })
+      }
+      if (err instanceof AppError && err.code === 'GAME_NOT_IN_LOBBY') {
+        return res.status(422).json({ error: 'Words can only be submitted while game is in lobby' })
+      }
+      next(err)
+    }
+  })
+
+  // GET /:joinCode/words — list a player's submitted words
+  router.get('/:joinCode/words', async (req, res, next) => {
+    try {
+      const joinCode = req.params.joinCode.toUpperCase()
+      const { playerId } = req.query
+      if (typeof playerId !== 'string') {
+        return res.status(400).json({ error: 'playerId query param is required' })
+      }
+      const words = await store.getWords(joinCode, playerId)
+      return res.json({ words })
+    } catch (err: unknown) {
+      if (err instanceof AppError && err.code === 'NOT_FOUND') {
+        return res.status(404).json({ error: 'Game not found' })
+      }
+      if (err instanceof AppError && err.code === 'FORBIDDEN') {
+        return res.status(403).json({ error: 'Player not in game' })
+      }
       next(err)
     }
   })

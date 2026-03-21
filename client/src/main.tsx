@@ -5,6 +5,7 @@ import { HomePage } from './pages/HomePage'
 import { CreateGamePage } from './pages/CreateGamePage'
 import { JoinPage } from './pages/JoinPage'
 import { LobbyPage } from './pages/LobbyPage'
+import { WordEntryPage } from './pages/WordEntryPage'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -15,6 +16,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <Route path="/create" element={<CreateGamePage />} />
         <Route path="/join" element={<JoinPage />} />
         <Route path="/game/:joinCode" element={<LobbyPage />} />
+        <Route path="/game/:joinCode/words" element={<WordEntryPage />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>,

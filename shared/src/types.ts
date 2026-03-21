@@ -1,5 +1,12 @@
 export type Team = 1 | 2
 
+export const WORDS_PER_PLAYER = 5
+
+export type Word = {
+  id: string
+  text: string
+}
+
 export type Player = {
   id: string
   name: string

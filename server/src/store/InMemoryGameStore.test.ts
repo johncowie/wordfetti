@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { InMemoryGameStore } from './InMemoryGameStore.js'
+import { WORDS_PER_PLAYER } from '@wordfetti/shared'
 import type { Game } from '@wordfetti/shared'
 
 describe('InMemoryGameStore', () => {
@@ -112,6 +113,78 @@ describe('startGame', () => {
   it('throws NOT_FOUND for an unknown join code', async () => {
     const store = new InMemoryGameStore()
     await expect(store.startGame('XXXXXX')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+})
+
+describe('addWord', () => {
+  it('adds a word and returns it', async () => {
+    const store = new InMemoryGameStore()
+    const game = await store.createGame()
+    const player = await store.joinGame(game.joinCode, 'Alice', 1)
+    const word = await store.addWord(game.joinCode, player.id, 'banana')
+    expect(word.text).toBe('banana')
+    expect(typeof word.id).toBe('string')
+  })
+
+  it('accepts the 5th word and rejects the 6th with WORD_LIMIT_REACHED', async () => {
+    const store = new InMemoryGameStore()
+    const game = await store.createGame()
+    const player = await store.joinGame(game.joinCode, 'Alice', 1)
+    for (let i = 1; i < WORDS_PER_PLAYER; i++) {
+      await store.addWord(game.joinCode, player.id, `word${i}`)
+    }
+    // 5th word must succeed
+    await expect(store.addWord(game.joinCode, player.id, 'fifth')).resolves.toMatchObject({ text: 'fifth' })
+    // 6th must be rejected
+    await expect(store.addWord(game.joinCode, player.id, 'sixth')).rejects.toMatchObject({
+      code: 'WORD_LIMIT_REACHED',
+    })
+  })
+
+  it('throws NOT_FOUND when game does not exist', async () => {
+    const store = new InMemoryGameStore()
+    await expect(store.addWord('XXXXXX', 'p1', 'banana')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('throws FORBIDDEN when player not in game', async () => {
+    const store = new InMemoryGameStore()
+    const game = await store.createGame()
+    await expect(store.addWord(game.joinCode, 'unknown-player', 'banana')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+  })
+
+  it('throws GAME_NOT_IN_LOBBY when game is in_progress', async () => {
+    const store = new InMemoryGameStore()
+    const game = await store.createGame()
+    const player = await store.joinGame(game.joinCode, 'Alice', 1)
+    await store.startGame(game.joinCode)
+    await expect(store.addWord(game.joinCode, player.id, 'banana')).rejects.toMatchObject({
+      code: 'GAME_NOT_IN_LOBBY',
+    })
+  })
+})
+
+describe('getWords', () => {
+  it('returns only that player\'s words', async () => {
+    const store = new InMemoryGameStore()
+    const game = await store.createGame()
+    const alice = await store.joinGame(game.joinCode, 'Alice', 1)
+    const bob = await store.joinGame(game.joinCode, 'Bob', 2)
+    await store.addWord(game.joinCode, alice.id, 'apple')
+    await store.addWord(game.joinCode, alice.id, 'banana')
+    await store.addWord(game.joinCode, bob.id, 'cherry')
+    const aliceWords = await store.getWords(game.joinCode, alice.id)
+    expect(aliceWords).toHaveLength(2)
+    expect(aliceWords.map((w) => w.text)).toEqual(['apple', 'banana'])
+  })
+
+  it('throws FORBIDDEN when player not in game', async () => {
+    const store = new InMemoryGameStore()
+    const game = await store.createGame()
+    await expect(store.getWords(game.joinCode, 'unknown-player')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
   })
 })
 

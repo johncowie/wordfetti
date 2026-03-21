@@ -1,4 +1,4 @@
-import type { Game, Player, Team } from '@wordfetti/shared'
+import type { Game, Player, Team, Word } from '@wordfetti/shared'
 
 export interface GameStore {
   createGame(): Promise<Game>
@@ -7,4 +7,6 @@ export interface GameStore {
   joinGame(joinCode: string, name: string, team: Team): Promise<Player>
   subscribe(joinCode: string, callback: (game: Game) => void): () => void
   startGame(joinCode: string): Promise<Game>
+  addWord(joinCode: string, playerId: string, text: string): Promise<Word>
+  getWords(joinCode: string, playerId: string): Promise<Word[]>
 }

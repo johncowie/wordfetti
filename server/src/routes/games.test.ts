@@ -18,6 +18,8 @@ const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
   joinGame: async () => ({ id: 'p1', name: 'Test', team: 1 as const }),
   subscribe: () => () => {},
   startGame: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [] }),
+  addWord: async () => ({ id: 'w1', text: 'banana' }),
+  getWords: async () => [],
   ...overrides,
 })
 
@@ -310,5 +312,94 @@ describe('GET /api/games/:joinCode/events', () => {
       return unsubscribed
     })
     expect(unsubscribe).toHaveBeenCalledOnce()
+  })
+})
+
+describe('POST /api/games/:joinCode/words', () => {
+  it('returns 201 with the new word', async () => {
+    const res = await request(buildApp(mockStore()))
+      .post('/ABC123/words')
+      .send({ playerId: 'p1', text: 'banana' })
+    expect(res.status).toBe(201)
+    expect(res.body.word).toMatchObject({ id: 'w1', text: 'banana' })
+  })
+
+  it('returns 400 when playerId is missing', async () => {
+    const res = await request(buildApp(mockStore()))
+      .post('/ABC123/words')
+      .send({ text: 'banana' })
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 400 when text is empty', async () => {
+    const res = await request(buildApp(mockStore()))
+      .post('/ABC123/words')
+      .send({ playerId: 'p1', text: '' })
+    expect(res.status).toBe(400)
+  })
+
+  it('accepts a word exactly 50 characters long', async () => {
+    const res = await request(buildApp(mockStore()))
+      .post('/ABC123/words')
+      .send({ playerId: 'p1', text: 'A'.repeat(50) })
+    expect(res.status).toBe(201)
+  })
+
+  it('returns 400 when text exceeds 50 characters', async () => {
+    const res = await request(buildApp(mockStore()))
+      .post('/ABC123/words')
+      .send({ playerId: 'p1', text: 'A'.repeat(51) })
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 403 when store throws FORBIDDEN', async () => {
+    const store = mockStore({ addWord: async () => { throw new AppError('FORBIDDEN', 'Player not in game') } })
+    const res = await request(buildApp(store)).post('/ABC123/words').send({ playerId: 'p1', text: 'banana' })
+    expect(res.status).toBe(403)
+  })
+
+  it('returns 404 when store throws NOT_FOUND', async () => {
+    const store = mockStore({ addWord: async () => { throw new AppError('NOT_FOUND', 'Game not found') } })
+    const res = await request(buildApp(store)).post('/ABC123/words').send({ playerId: 'p1', text: 'banana' })
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 409 when store throws WORD_LIMIT_REACHED', async () => {
+    const store = mockStore({ addWord: async () => { throw new AppError('WORD_LIMIT_REACHED', 'Limit reached') } })
+    const res = await request(buildApp(store)).post('/ABC123/words').send({ playerId: 'p1', text: 'banana' })
+    expect(res.status).toBe(409)
+  })
+
+  it('returns 422 when store throws GAME_NOT_IN_LOBBY', async () => {
+    const store = mockStore({ addWord: async () => { throw new AppError('GAME_NOT_IN_LOBBY', 'Not in lobby') } })
+    const res = await request(buildApp(store)).post('/ABC123/words').send({ playerId: 'p1', text: 'banana' })
+    expect(res.status).toBe(422)
+  })
+})
+
+describe('GET /api/games/:joinCode/words', () => {
+  it('returns 200 with the player\'s word list', async () => {
+    const words = [{ id: 'w1', text: 'apple' }, { id: 'w2', text: 'banana' }]
+    const store = mockStore({ getWords: async () => words })
+    const res = await request(buildApp(store)).get('/ABC123/words?playerId=p1')
+    expect(res.status).toBe(200)
+    expect(res.body.words).toEqual(words)
+  })
+
+  it('returns 400 when playerId query param is missing', async () => {
+    const res = await request(buildApp(mockStore())).get('/ABC123/words')
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 403 when store throws FORBIDDEN', async () => {
+    const store = mockStore({ getWords: async () => { throw new AppError('FORBIDDEN', 'Player not in game') } })
+    const res = await request(buildApp(store)).get('/ABC123/words?playerId=p1')
+    expect(res.status).toBe(403)
+  })
+
+  it('returns 404 when store throws NOT_FOUND', async () => {
+    const store = mockStore({ getWords: async () => { throw new AppError('NOT_FOUND', 'Game not found') } })
+    const res = await request(buildApp(store)).get('/ABC123/words?playerId=p1')
+    expect(res.status).toBe(404)
   })
 })
