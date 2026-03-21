@@ -4,10 +4,16 @@ import express from 'express'
 import { createGamesRouter } from './games.js'
 import type { GameStore } from '../store/GameStore.js'
 import type { Game } from '@wordfetti/shared'
+import { AppError } from '../errors.js'
 
 const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
-  createGame: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'lobby' } as Game),
+  createGame: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'lobby', players: [] } as Game),
+  createGameWithHost: async () => ({
+    game: { id: 'test-id', joinCode: 'ABC123', status: 'lobby', players: [] } as Game,
+    player: { id: 'p1', name: 'Test', team: 1 as const },
+  }),
   getGameByJoinCode: async () => null,
+  joinGame: async () => ({ id: 'p1', name: 'Test', team: 1 as const }),
   ...overrides,
 })
 
@@ -15,6 +21,9 @@ function buildApp(store: GameStore) {
   const app = express()
   app.use(express.json())
   app.use('/', createGamesRouter(store))
+  app.use((_err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    res.status(500).json({ error: 'internal server error' })
+  })
   return app
 }
 
@@ -31,11 +40,109 @@ describe('POST /api/games', () => {
         throw new Error('store error')
       },
     })
-    const app = buildApp(failStore)
-    app.use((_err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-      res.status(500).json({ error: 'internal server error' })
-    })
-    const res = await request(app).post('/')
+    const res = await request(buildApp(failStore)).post('/')
     expect(res.status).toBe(500)
+  })
+})
+
+describe('POST /api/games — with host body', () => {
+  it('returns 201 with joinCode and player when name+team provided', async () => {
+    const res = await request(buildApp(mockStore()))
+      .post('/')
+      .send({ name: 'Alice', team: 1 })
+    expect(res.status).toBe(201)
+    expect(res.body).toHaveProperty('joinCode')
+    expect(res.body.player).toMatchObject({ name: 'Test', team: 1 })
+  })
+
+  it('returns 400 when name is empty in host body', async () => {
+    const res = await request(buildApp(mockStore())).post('/').send({ name: '', team: 1 })
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 400 when team is invalid in host body', async () => {
+    const res = await request(buildApp(mockStore())).post('/').send({ name: 'Alice', team: 3 })
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('GET /api/games/:joinCode', () => {
+  it('returns 200 with game data when game exists', async () => {
+    const game = { id: 'g1', joinCode: 'ABC123', status: 'lobby' as const, players: [] }
+    const store = mockStore({ getGameByJoinCode: async () => game })
+    const res = await request(buildApp(store)).get('/ABC123')
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ joinCode: 'ABC123', players: [] })
+  })
+
+  it('returns 404 when game is not found', async () => {
+    const store = mockStore({ getGameByJoinCode: async () => null })
+    const res = await request(buildApp(store)).get('/XXXXXX')
+    expect(res.status).toBe(404)
+  })
+
+  it('normalises lowercase join code to uppercase', async () => {
+    const game = { id: 'g1', joinCode: 'ABC123', status: 'lobby' as const, players: [] }
+    const store = mockStore({ getGameByJoinCode: async () => game })
+    const res = await request(buildApp(store)).get('/abc123')
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('POST /api/games/:joinCode/players', () => {
+  it('returns 201 with the new player', async () => {
+    const player = { id: 'p1', name: 'Alice', team: 1 as const }
+    const store = mockStore({ joinGame: async () => player })
+    const res = await request(buildApp(store))
+      .post('/ABC123/players')
+      .send({ name: 'Alice', team: 1 })
+    expect(res.status).toBe(201)
+    expect(res.body.player).toMatchObject({ name: 'Alice', team: 1 })
+  })
+
+  it('trims whitespace from name before storing', async () => {
+    let receivedName = ''
+    const store = mockStore({
+      joinGame: async (_code, name) => { receivedName = name; return { id: 'p1', name, team: 1 as const } },
+    })
+    await request(buildApp(store)).post('/ABC123/players').send({ name: '  Alice  ', team: 1 })
+    expect(receivedName).toBe('Alice')
+  })
+
+  it('returns 400 when name is empty', async () => {
+    const res = await request(buildApp(mockStore())).post('/ABC123/players').send({ name: '', team: 1 })
+    expect(res.status).toBe(400)
+  })
+
+  it('accepts a name exactly 50 characters long', async () => {
+    const res = await request(buildApp(mockStore()))
+      .post('/ABC123/players')
+      .send({ name: 'A'.repeat(50), team: 1 })
+    expect(res.status).toBe(201)
+  })
+
+  it('returns 400 when name exceeds 50 characters', async () => {
+    const res = await request(buildApp(mockStore()))
+      .post('/ABC123/players')
+      .send({ name: 'A'.repeat(51), team: 1 })
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 400 when team is invalid', async () => {
+    const res = await request(buildApp(mockStore())).post('/ABC123/players').send({ name: 'Bob', team: 3 })
+    expect(res.status).toBe(400)
+  })
+
+  it('normalises lowercase join code to uppercase', async () => {
+    const res = await request(buildApp(mockStore()))
+      .post('/abc123/players')
+      .send({ name: 'Bob', team: 1 })
+    expect(res.status).toBe(201)
+  })
+
+  it('returns 404 when join code is unknown', async () => {
+    const store = mockStore({ joinGame: async () => { throw new AppError('NOT_FOUND', 'Game not found') } })
+    const res = await request(buildApp(store)).post('/XXXXXX/players').send({ name: 'Bob', team: 1 })
+    expect(res.status).toBe(404)
   })
 })

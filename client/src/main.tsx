@@ -2,7 +2,9 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { HomePage } from './pages/HomePage'
-import { GameCodePage } from './pages/GameCodePage'
+import { CreateGamePage } from './pages/CreateGamePage'
+import { JoinPage } from './pages/JoinPage'
+import { LobbyPage } from './pages/LobbyPage'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -10,7 +12,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<HomePage />} />
-        <Route path="/game/:joinCode" element={<GameCodePage />} />
+        <Route path="/create" element={<CreateGamePage />} />
+        <Route path="/join" element={<JoinPage />} />
+        <Route path="/game/:joinCode" element={<LobbyPage />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>,
