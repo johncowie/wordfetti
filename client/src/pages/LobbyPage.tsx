@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { WORDS_PER_PLAYER } from '@wordfetti/shared'
 import type { Game, Player } from '@wordfetti/shared'
 import { Logo } from '../components/Logo'
 import { loadSession } from '../session'
@@ -245,14 +246,18 @@ type PlayerRowProps = {
 }
 
 function PlayerRow({ player, isCurrentPlayer }: PlayerRowProps) {
+  const done = player.wordCount >= WORDS_PER_PLAYER
   return (
     <li className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm">
-      <span aria-hidden="true">⭐</span>
+      <span aria-hidden="true">{done ? '✅' : '⭐'}</span>
       <span className="flex-1 font-medium text-gray-800">
         {player.name}
         {isCurrentPlayer && (
           <span className="ml-1 text-xs text-gray-400">(you)</span>
         )}
+      </span>
+      <span className={`text-xs font-medium ${done ? 'text-green-600' : 'text-gray-400'}`}>
+        {player.wordCount} / {WORDS_PER_PLAYER}
       </span>
     </li>
   )

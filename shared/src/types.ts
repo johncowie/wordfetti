@@ -11,6 +11,7 @@ export type Player = {
   id: string
   name: string
   team: Team
+  wordCount: number
 }
 
 export type Game = {

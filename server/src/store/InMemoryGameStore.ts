@@ -52,7 +52,7 @@ export class InMemoryGameStore implements GameStore {
     const game = this.games.get(joinCode)
     if (!game) throw new AppError('NOT_FOUND', 'Game not found')
     if (game.status !== 'lobby') throw new AppError('GAME_IN_PROGRESS', 'Game has already started')
-    const player: Player = { id: randomUUID(), name, team }
+    const player: Player = { id: randomUUID(), name, team, wordCount: 0 }
     game.players.push(player)
     const snapshot = { ...game, players: [...game.players] }
     this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
@@ -95,6 +95,9 @@ export class InMemoryGameStore implements GameStore {
     }
     const word: Word = { id: randomUUID(), text: text.trim() }
     this.words.set(key, [...playerWords, word])
+    player.wordCount = playerWords.length + 1
+    const snapshot = { ...game, players: [...game.players] }
+    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
     return { ...word }
   }
 
@@ -117,5 +120,8 @@ export class InMemoryGameStore implements GameStore {
     const wordIndex = playerWords.findIndex((w) => w.id === wordId)
     if (wordIndex === -1) throw new AppError('NOT_FOUND', 'Word not found')
     this.words.set(key, playerWords.filter((w) => w.id !== wordId))
+    player.wordCount = playerWords.length - 1
+    const snapshot = { ...game, players: [...game.players] }
+    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
   }
 }

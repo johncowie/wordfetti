@@ -117,6 +117,17 @@ describe('startGame', () => {
 })
 
 describe('addWord', () => {
+  it('notifies subscribers with updated wordCount after addWord', async () => {
+    const store = new InMemoryGameStore()
+    const game = await store.createGame()
+    const player = await store.joinGame(game.joinCode, 'Alice', 1)
+    const updates: Game[] = []
+    store.subscribe(game.joinCode, (g) => updates.push(g))
+    await store.addWord(game.joinCode, player.id, 'apple')
+    expect(updates).toHaveLength(1)
+    expect(updates[0].players.find((p) => p.id === player.id)?.wordCount).toBe(1)
+  })
+
   it('adds a word and returns it', async () => {
     const store = new InMemoryGameStore()
     const game = await store.createGame()

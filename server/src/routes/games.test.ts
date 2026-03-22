@@ -12,10 +12,10 @@ const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
   createGame: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'lobby', players: [] } as Game),
   createGameWithHost: async () => ({
     game: { id: 'test-id', joinCode: 'ABC123', status: 'lobby', players: [] } as Game,
-    player: { id: 'p1', name: 'Test', team: 1 as const },
+    player: { id: 'p1', name: 'Test', team: 1 as const, wordCount: 0 },
   }),
   getGameByJoinCode: async () => null,
-  joinGame: async () => ({ id: 'p1', name: 'Test', team: 1 as const }),
+  joinGame: async () => ({ id: 'p1', name: 'Test', team: 1 as const, wordCount: 0 }),
   subscribe: () => () => {},
   startGame: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [] }),
   addWord: async () => ({ id: 'w1', text: 'banana' }),
@@ -110,7 +110,7 @@ describe('GET /api/games/:joinCode', () => {
 
 describe('POST /api/games/:joinCode/players', () => {
   it('returns 201 with the new player', async () => {
-    const player = { id: 'p1', name: 'Alice', team: 1 as const }
+    const player = { id: 'p1', name: 'Alice', team: 1 as const, wordCount: 0 }
     const store = mockStore({ joinGame: async () => player })
     const res = await request(buildApp(store))
       .post('/ABC123/players')
@@ -122,7 +122,7 @@ describe('POST /api/games/:joinCode/players', () => {
   it('trims whitespace from name before storing', async () => {
     let receivedName = ''
     const store = mockStore({
-      joinGame: async (_code, name) => { receivedName = name; return { id: 'p1', name, team: 1 as const } },
+      joinGame: async (_code, name) => { receivedName = name; return { id: 'p1', name, team: 1 as const, wordCount: 0 } },
     })
     await request(buildApp(store)).post('/ABC123/players').send({ name: '  Alice  ', team: 1 })
     expect(receivedName).toBe('Alice')
@@ -183,10 +183,10 @@ describe('POST /api/games/:joinCode/start', () => {
     joinCode: 'ABC123',
     status: 'lobby' as const,
     players: [
-      { id: hostId, name: 'Alice', team: 1 as const },
-      { id: 'p2', name: 'Bob', team: 1 as const },
-      { id: 'p3', name: 'Carol', team: 2 as const },
-      { id: 'p4', name: 'Dave', team: 2 as const },
+      { id: hostId, name: 'Alice', team: 1 as const, wordCount: 0 },
+      { id: 'p2', name: 'Bob', team: 1 as const, wordCount: 0 },
+      { id: 'p3', name: 'Carol', team: 2 as const, wordCount: 0 },
+      { id: 'p4', name: 'Dave', team: 2 as const, wordCount: 0 },
     ],
     hostId,
   }
@@ -217,8 +217,8 @@ describe('POST /api/games/:joinCode/start', () => {
     const shortGame = {
       ...baseGame,
       players: [
-        { id: hostId, name: 'Alice', team: 1 as const },
-        { id: 'p3', name: 'Carol', team: 2 as const },
+        { id: hostId, name: 'Alice', team: 1 as const, wordCount: 0 },
+        { id: 'p3', name: 'Carol', team: 2 as const, wordCount: 0 },
       ],
     }
     const store = mockStore({ getGameByJoinCode: async () => shortGame })
