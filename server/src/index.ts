@@ -16,7 +16,7 @@ app.use(helmet())
 app.use(cors({ origin: corsOrigin }))
 app.use(express.json())
 
-const apiLimiter = rateLimit({ windowMs: 60_000, max: 20 })
+const apiLimiter = rateLimit({ windowMs: 60_000, max: 500 })
 app.use('/api', apiLimiter)
 app.use('/api/games', createGamesRouter(store))
 
