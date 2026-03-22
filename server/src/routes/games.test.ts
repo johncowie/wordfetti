@@ -6,7 +6,10 @@ import type { AddressInfo } from 'net'
 import { createGamesRouter } from './games.js'
 import type { GameStore } from '../store/GameStore.js'
 import type { Game } from '@wordfetti/shared'
+import type { GameConfig } from '../config.js'
 import { AppError } from '../errors.js'
+
+const TEST_CONFIG: GameConfig = { wordsPerPlayer: 5 }
 
 const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
   createGame: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'lobby', players: [] } as Game),
@@ -28,10 +31,10 @@ const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
   ...overrides,
 })
 
-function buildApp(store: GameStore) {
+function buildApp(store: GameStore, config: GameConfig = TEST_CONFIG) {
   const app = express()
   app.use(express.json())
-  app.use('/', createGamesRouter(store))
+  app.use('/', createGamesRouter(store, config))
   app.use((_err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     res.status(500).json({ error: 'internal server error' })
   })

@@ -6,9 +6,10 @@ import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { InMemoryGameStore } from './store/InMemoryGameStore.js'
 import { createGamesRouter } from './routes/games.js'
+import { DEFAULT_GAME_CONFIG } from './config.js'
 
 const app = express()
-const store = new InMemoryGameStore()
+const store = new InMemoryGameStore(DEFAULT_GAME_CONFIG)
 
 const corsOrigin = process.env.CORS_ORIGIN ?? 'http://localhost:5173'
 app.set('trust proxy', 1) // Trust first proxy (reverse proxy in Docker)
@@ -18,7 +19,7 @@ app.use(express.json())
 
 const apiLimiter = rateLimit({ windowMs: 60_000, max: 500 })
 app.use('/api', apiLimiter)
-app.use('/api/games', createGamesRouter(store))
+app.use('/api/games', createGamesRouter(store, DEFAULT_GAME_CONFIG))
 
 app.get('/health', (_req, res) => res.sendStatus(200))
 

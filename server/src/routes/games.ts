@@ -1,7 +1,8 @@
 import { Router } from 'express'
 import type { Game } from '@wordfetti/shared'
 import type { GameStore } from '../store/GameStore.js'
-import { WORDS_PER_PLAYER, type Team } from '@wordfetti/shared'
+import { type Team } from '@wordfetti/shared'
+import type { GameConfig } from '../config.js'
 import { AppError } from '../errors.js'
 
 function toPublicGame(game: Game & { hat?: unknown; skippedThisTurn?: unknown; currentWordId?: unknown; clueGiverIndices?: unknown }) {
@@ -21,7 +22,7 @@ function isValidWordText(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.trim().length <= 50
 }
 
-export function createGamesRouter(store: GameStore): Router {
+export function createGamesRouter(store: GameStore, config: GameConfig): Router {
   const router = Router()
 
   // POST / — creates a game. If { name, team } are provided in the body,
@@ -113,7 +114,7 @@ export function createGamesRouter(store: GameStore): Router {
         return res.status(422).json({ error: 'Both teams need at least 2 players to start' })
       }
 
-      const allWordsSubmitted = game.players.every((p) => p.wordCount >= WORDS_PER_PLAYER)
+      const allWordsSubmitted = game.players.every((p) => p.wordCount >= config.wordsPerPlayer)
       if (!allWordsSubmitted) {
         return res.status(422).json({ error: 'All players must submit their words before the game can start' })
       }
@@ -146,7 +147,7 @@ export function createGamesRouter(store: GameStore): Router {
         return res.status(403).json({ error: 'Player not in game' })
       }
       if (err instanceof AppError && err.code === 'WORD_LIMIT_REACHED') {
-        return res.status(409).json({ error: `You can only submit ${WORDS_PER_PLAYER} words` })
+        return res.status(409).json({ error: `You can only submit ${config.wordsPerPlayer} words` })
       }
       if (err instanceof AppError && err.code === 'GAME_NOT_IN_LOBBY') {
         return res.status(422).json({ error: 'Words can only be submitted while game is in lobby' })

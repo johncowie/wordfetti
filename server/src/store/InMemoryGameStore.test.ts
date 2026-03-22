@@ -3,11 +3,14 @@ import { InMemoryGameStore } from './InMemoryGameStore.js'
 import type { InternalGame } from './InMemoryGameStore.js'
 import { WORDS_PER_PLAYER } from '@wordfetti/shared'
 import type { Game } from '@wordfetti/shared'
+import type { GameConfig } from '../config.js'
+
+const TEST_CONFIG: GameConfig = { wordsPerPlayer: 5 }
 
 // Creates a game with 2 players per team, each having submitted WORDS_PER_PLAYER words.
 // Ready to call startGame on.
 async function setupReadyGame() {
-  const store = new InMemoryGameStore()
+  const store = new InMemoryGameStore(TEST_CONFIG)
   const { game, player: host } = await store.createGameWithHost('Alice', 1)
   const p2 = await store.joinGame(game.joinCode, 'Bob', 1)
   const p3 = await store.joinGame(game.joinCode, 'Carol', 2)
@@ -36,13 +39,13 @@ async function setupStartedGame() {
 
 describe('InMemoryGameStore', () => {
   it('creates a game with a 6-character join code using only valid characters', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const game = await store.createGame()
     expect(game.joinCode).toMatch(/^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$/)
   })
 
   it('join code never contains ambiguous characters', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     for (let i = 0; i < 50; i++) {
       const game = await store.createGame()
       expect(game.joinCode).not.toMatch(/[01ILO]/)
@@ -50,14 +53,14 @@ describe('InMemoryGameStore', () => {
   })
 
   it('retrieves a game by join code', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const created = await store.createGame()
     const found = await store.getGameByJoinCode(created.joinCode)
     expect(found).toEqual(created)
   })
 
   it('returns null for an unknown join code', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const found = await store.getGameByJoinCode('XXXXXX')
     expect(found).toBeNull()
   })
@@ -65,7 +68,7 @@ describe('InMemoryGameStore', () => {
 
 describe('joinGame', () => {
   it('adds a player to an existing game and returns the player', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const game = await store.createGame()
     const player = await store.joinGame(game.joinCode, 'Alice', 1)
     expect(player.name).toBe('Alice')
@@ -77,7 +80,7 @@ describe('joinGame', () => {
   })
 
   it('adds multiple players to the same game', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const game = await store.createGame()
     await store.joinGame(game.joinCode, 'Alice', 1)
     await store.joinGame(game.joinCode, 'Bob', 2)
@@ -87,7 +90,7 @@ describe('joinGame', () => {
   })
 
   it('throws NOT_FOUND for an unknown join code', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     await expect(store.joinGame('XXXXXX', 'Alice', 1)).rejects.toMatchObject({
       code: 'NOT_FOUND',
     })
@@ -103,7 +106,7 @@ describe('joinGame', () => {
 
 describe('createGameWithHost', () => {
   it('creates a game and registers the host as the first player atomically', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const { game, player } = await store.createGameWithHost('Alice', 1)
     expect(typeof game.joinCode).toBe('string')
     expect(player.name).toBe('Alice')
@@ -114,7 +117,7 @@ describe('createGameWithHost', () => {
   })
 
   it('records the host player id on the game', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const { game, player } = await store.createGameWithHost('Alice', 1)
     expect(game.hostId).toBe(player.id)
   })
@@ -138,7 +141,7 @@ describe('startGame', () => {
   })
 
   it('throws NOT_FOUND for an unknown join code', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     await expect(store.startGame('XXXXXX')).rejects.toMatchObject({ code: 'NOT_FOUND' })
   })
 
@@ -189,7 +192,7 @@ describe('startGame', () => {
     // Run up to 20 times to hit team 2 selection with high confidence.
     let threwInvalidState = false
     for (let i = 0; i < 20; i++) {
-      const freshStore = new InMemoryGameStore()
+      const freshStore = new InMemoryGameStore(TEST_CONFIG)
       const { game: g, player: h } = await freshStore.createGameWithHost('Alice', 1)
       const q2 = await freshStore.joinGame(g.joinCode, 'Bob', 1)
       for (const [pid, words] of [[h.id, ['a', 'b', 'c', 'd', 'e']], [q2.id, ['f', 'g', 'h', 'i', 'j']]] as [string, string[]][]) {
@@ -209,7 +212,7 @@ describe('startGame', () => {
 
 describe('addWord', () => {
   it('notifies subscribers with updated wordCount after addWord', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const game = await store.createGame()
     const player = await store.joinGame(game.joinCode, 'Alice', 1)
     const updates: Game[] = []
@@ -220,7 +223,7 @@ describe('addWord', () => {
   })
 
   it('adds a word and returns it', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const game = await store.createGame()
     const player = await store.joinGame(game.joinCode, 'Alice', 1)
     const word = await store.addWord(game.joinCode, player.id, 'banana')
@@ -228,28 +231,28 @@ describe('addWord', () => {
     expect(typeof word.id).toBe('string')
   })
 
-  it('accepts the 5th word and rejects the 6th with WORD_LIMIT_REACHED', async () => {
-    const store = new InMemoryGameStore()
+  it('accepts the last word and rejects the next with WORD_LIMIT_REACHED', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const game = await store.createGame()
     const player = await store.joinGame(game.joinCode, 'Alice', 1)
-    for (let i = 1; i < WORDS_PER_PLAYER; i++) {
+    for (let i = 1; i < TEST_CONFIG.wordsPerPlayer; i++) {
       await store.addWord(game.joinCode, player.id, `word${i}`)
     }
-    // 5th word must succeed
-    await expect(store.addWord(game.joinCode, player.id, 'fifth')).resolves.toMatchObject({ text: 'fifth' })
-    // 6th must be rejected
-    await expect(store.addWord(game.joinCode, player.id, 'sixth')).rejects.toMatchObject({
+    // last allowed word must succeed
+    await expect(store.addWord(game.joinCode, player.id, 'last')).resolves.toMatchObject({ text: 'last' })
+    // one over the limit must be rejected
+    await expect(store.addWord(game.joinCode, player.id, 'over')).rejects.toMatchObject({
       code: 'WORD_LIMIT_REACHED',
     })
   })
 
   it('throws NOT_FOUND when game does not exist', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     await expect(store.addWord('XXXXXX', 'p1', 'banana')).rejects.toMatchObject({ code: 'NOT_FOUND' })
   })
 
   it('throws FORBIDDEN when player not in game', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const game = await store.createGame()
     await expect(store.addWord(game.joinCode, 'unknown-player', 'banana')).rejects.toMatchObject({
       code: 'FORBIDDEN',
@@ -267,7 +270,7 @@ describe('addWord', () => {
 
 describe('getWords', () => {
   it('returns only that player\'s words', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const game = await store.createGame()
     const alice = await store.joinGame(game.joinCode, 'Alice', 1)
     const bob = await store.joinGame(game.joinCode, 'Bob', 2)
@@ -280,7 +283,7 @@ describe('getWords', () => {
   })
 
   it('throws FORBIDDEN when player not in game', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const game = await store.createGame()
     await expect(store.getWords(game.joinCode, 'unknown-player')).rejects.toMatchObject({
       code: 'FORBIDDEN',
@@ -290,7 +293,7 @@ describe('getWords', () => {
 
 describe('deleteWord', () => {
   it('removes the word so subsequent getWords does not include it', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const game = await store.createGame()
     const player = await store.joinGame(game.joinCode, 'Alice', 1)
     const word = await store.addWord(game.joinCode, player.id, 'banana')
@@ -300,7 +303,7 @@ describe('deleteWord', () => {
   })
 
   it('throws NOT_FOUND when game does not exist', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     await expect(store.deleteWord('XXXXXX', 'p1', 'w1')).rejects.toMatchObject({ code: 'NOT_FOUND' })
   })
 
@@ -314,13 +317,13 @@ describe('deleteWord', () => {
   })
 
   it('throws FORBIDDEN when player not in game', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const game = await store.createGame()
     await expect(store.deleteWord(game.joinCode, 'unknown-player', 'w1')).rejects.toMatchObject({ code: 'FORBIDDEN' })
   })
 
   it('throws NOT_FOUND when word id does not exist', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const game = await store.createGame()
     const player = await store.joinGame(game.joinCode, 'Alice', 1)
     await expect(store.deleteWord(game.joinCode, player.id, 'nonexistent-id')).rejects.toMatchObject({ code: 'NOT_FOUND' })
@@ -329,7 +332,7 @@ describe('deleteWord', () => {
 
 describe('subscribe', () => {
   it('calls the callback with the updated game when a player joins', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const game = await store.createGame()
     const updates: Game[] = []
     store.subscribe(game.joinCode, (g) => updates.push(g))
@@ -339,7 +342,7 @@ describe('subscribe', () => {
   })
 
   it('does not call the callback after unsubscribe', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const game = await store.createGame()
     const updates: Game[] = []
     const unsub = store.subscribe(game.joinCode, (g) => updates.push(g))
@@ -349,7 +352,7 @@ describe('subscribe', () => {
   })
 
   it('does not call callbacks for a different game', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const game1 = await store.createGame()
     const game2 = await store.createGame()
     const updates: Game[] = []
@@ -359,7 +362,7 @@ describe('subscribe', () => {
   })
 
   it('delivered snapshot is not mutated by a subsequent join', async () => {
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const game = await store.createGame()
     const updates: Game[] = []
     store.subscribe(game.joinCode, (g) => updates.push(g))
@@ -428,7 +431,7 @@ describe('readyTurn', () => {
 describe('guessWord', () => {
   it('removes only the guessed word by ID when two words share the same text', async () => {
     // Build a minimal game with two identical-text words
-    const store = new InMemoryGameStore()
+    const store = new InMemoryGameStore(TEST_CONFIG)
     const { game, player: host } = await store.createGameWithHost('Alice', 1)
     const p2 = await store.joinGame(game.joinCode, 'Bob', 2)
     // Add 5 words each so startGame can proceed, but we need control over hat content.

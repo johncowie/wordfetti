@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
-import { WORDS_PER_PLAYER, type Game, type Player, type Team, type Word } from '@wordfetti/shared'
+import { type Game, type Player, type Team, type Word } from '@wordfetti/shared'
 import type { GameStore } from './GameStore.js'
+import type { GameConfig } from '../config.js'
 import { generateJoinCode } from './joinCode.js'
 import { AppError } from '../errors.js'
 import { logger } from '../logger.js'
@@ -18,6 +19,8 @@ export class InMemoryGameStore implements GameStore {
   private readonly games = new Map<string, InternalGame>()
   private readonly subscribers = new Map<string, Set<(game: Game) => void>>()
   private readonly words = new Map<string, Word[]>()
+
+  constructor(private readonly config: GameConfig) {}
 
   async createGame(): Promise<Game> {
     let joinCode: string
@@ -313,7 +316,7 @@ export class InMemoryGameStore implements GameStore {
     if (!player) throw new AppError('FORBIDDEN', 'Player not in game')
     const key = `${joinCode}:${playerId}`
     const playerWords = this.words.get(key) ?? []
-    if (playerWords.length >= WORDS_PER_PLAYER) {
+    if (playerWords.length >= this.config.wordsPerPlayer) {
       throw new AppError('WORD_LIMIT_REACHED', 'Word limit reached')
     }
     const word: Word = { id: randomUUID(), text: text.trim() }
