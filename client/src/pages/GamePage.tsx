@@ -40,7 +40,7 @@ export function GamePage() {
     )
   }
 
-  if (!game || !game.currentClueGiverId) {
+  if (!game) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-brand-cream">
         <p role="status" className="text-gray-400">Loading...</p>
@@ -48,7 +48,8 @@ export function GamePage() {
     )
   }
 
-  // Round over — show score summary before looking up clueGiver (ENG-012 may clear currentClueGiverId on round end)
+  // Round over check must come before the currentClueGiverId guard because
+  // ENG-012 will clear currentClueGiverId when the round ends.
   if (game.status === 'round_over') {
     return (
       <div className="flex min-h-screen flex-col items-center bg-brand-cream px-4 py-8">
@@ -107,15 +108,19 @@ function ClueGiverView({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function handleReady() {
+  async function callGameAction(action: 'ready' | 'guess' | 'skip') {
     setLoading(true)
     setError(null)
     try {
-      await fetch(`/api/games/${joinCode}/ready`, {
+      const response = await fetch(`/api/games/${joinCode}/${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ playerId }),
       })
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}))
+        setError((body as { error?: string }).error ?? 'Something went wrong — please try again')
+      }
     } catch {
       setError('Something went wrong — please try again')
     } finally {
@@ -123,37 +128,9 @@ function ClueGiverView({
     }
   }
 
-  async function handleGuess() {
-    setLoading(true)
-    setError(null)
-    try {
-      await fetch(`/api/games/${joinCode}/guess`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerId }),
-      })
-    } catch {
-      setError('Something went wrong — please try again')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handleSkip() {
-    setLoading(true)
-    setError(null)
-    try {
-      await fetch(`/api/games/${joinCode}/skip`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerId }),
-      })
-    } catch {
-      setError('Something went wrong — please try again')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const handleReady = () => callGameAction('ready')
+  const handleGuess = () => callGameAction('guess')
+  const handleSkip = () => callGameAction('skip')
 
   if (game.turnPhase === 'ready') {
     return (

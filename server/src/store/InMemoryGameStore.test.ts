@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { InMemoryGameStore } from './InMemoryGameStore.js'
+import type { InternalGame } from './InMemoryGameStore.js'
 import { WORDS_PER_PLAYER } from '@wordfetti/shared'
 import type { Game } from '@wordfetti/shared'
 
@@ -143,9 +144,9 @@ describe('startGame', () => {
 
   it('hat contains exactly all submitted words', async () => {
     const { store, joinCode } = await setupReadyGame()
-    const game = await store.startGame(joinCode)
+    const game = await store.startGame(joinCode) as InternalGame
     expect(game.hat).toHaveLength(20)
-    expect(game.hat!.map((w) => w.text).sort()).toEqual([
+    expect(game.hat.map((w) => w.text).sort()).toEqual([
       'ant', 'bird', 'blue', 'cat', 'dog', 'fish', 'five', 'four', 'green',
       'moon', 'one', 'pink', 'rain', 'red', 'sky', 'star', 'sun', 'three', 'two', 'yellow',
     ])
@@ -439,9 +440,9 @@ describe('guessWord', () => {
     const started = await store.startGame(game.joinCode)
     const clueGiverId = started.currentClueGiverId!
     await store.readyTurn(game.joinCode, clueGiverId)
-    const afterGuess = await store.guessWord(game.joinCode, clueGiverId)
+    const afterGuess = await store.guessWord(game.joinCode, clueGiverId) as InternalGame
     // Hat had 10 words; after one guess it must have 9 (only one 'dup' removed)
-    expect(afterGuess.hat!).toHaveLength(9)
+    expect(afterGuess.hat).toHaveLength(9)
   })
 
   it('increments only the active team score, leaves other score unchanged', async () => {
@@ -519,22 +520,23 @@ describe('skipWord', () => {
   it('advances to a non-skipped word; skipped word does not reappear while others remain', async () => {
     const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
     const skippedWord = active.currentWord
-    const afterSkip = await store.skipWord(joinCode, clueGiverId)
+    const afterSkip = await store.skipWord(joinCode, clueGiverId) as InternalGame
     expect(afterSkip.currentWord).not.toBe(skippedWord)
     // Skip several more times; the original skipped word must not reappear
     let current = afterSkip
-    for (let i = 0; i < 5 && current.hat!.length > 2; i++) {
-      current = await store.skipWord(joinCode, clueGiverId)
+    for (let i = 0; i < 5 && current.hat.length > 2; i++) {
+      current = await store.skipWord(joinCode, clueGiverId) as InternalGame
       expect(current.currentWord).not.toBe(skippedWord)
     }
   })
 
   it('falls back to a previously-skipped word when all remaining words are skipped', async () => {
     const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
+    const activeInternal = active as InternalGame
     // Skip all 20 words — after the first 19 skips it must fall back to a previously-skipped word
     let current = active
     const wordsSeen = new Set<string>()
-    for (let i = 0; i < active.hat!.length; i++) {
+    for (let i = 0; i < activeInternal.hat.length; i++) {
       wordsSeen.add(current.currentWord!)
       current = await store.skipWord(joinCode, clueGiverId)
     }
@@ -545,9 +547,9 @@ describe('skipWord', () => {
   it('when only one word remains and is skipped, currentWord stays and status stays in_progress', async () => {
     const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
     // Guess all but one word
-    let current = active
-    while (current.hat!.length > 1) {
-      current = await store.guessWord(joinCode, clueGiverId)
+    let current: InternalGame = active as InternalGame
+    while (current.hat.length > 1) {
+      current = await store.guessWord(joinCode, clueGiverId) as InternalGame
     }
     expect(current.hat).toHaveLength(1)
     const lastWord = current.currentWord

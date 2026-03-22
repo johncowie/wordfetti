@@ -210,6 +210,7 @@ export function createGamesRouter(store: GameStore): Router {
       if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: err.message })
       if (err instanceof AppError && err.code === 'TURN_ALREADY_ACTIVE') return res.status(422).json({ error: err.message })
       if (err instanceof AppError && err.code === 'TURN_NOT_ALLOWED') return res.status(422).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'HAT_EMPTY') return res.status(422).json({ error: err.message })
       next(err)
     }
   })
@@ -229,6 +230,7 @@ export function createGamesRouter(store: GameStore): Router {
       if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: err.message })
       if (err instanceof AppError && err.code === 'TURN_NOT_ACTIVE') return res.status(422).json({ error: err.message })
       if (err instanceof AppError && err.code === 'TURN_NOT_ALLOWED') return res.status(422).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'INVALID_STATE') return res.status(500).json({ error: err.message })
       next(err)
     }
   })
@@ -248,6 +250,7 @@ export function createGamesRouter(store: GameStore): Router {
       if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: err.message })
       if (err instanceof AppError && err.code === 'TURN_NOT_ACTIVE') return res.status(422).json({ error: err.message })
       if (err instanceof AppError && err.code === 'TURN_NOT_ALLOWED') return res.status(422).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'INVALID_STATE') return res.status(500).json({ error: err.message })
       next(err)
     }
   })

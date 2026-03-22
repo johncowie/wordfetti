@@ -91,6 +91,8 @@ Add the new public fields and the `'round_over'` status value. Change `hat` from
 `string[]` to `Word[]`. `skippedThisTurn` and `currentWordId` are server-internal and
 live only on `InternalGame` (defined in Phase 2).
 
+**Important**: Do NOT include `hat` on the shared `Game` type. `hat` is server-internal — it lives only on `InternalGame` in the store. Adding it to the shared type would make it appear to client code as a valid, typed property even though it is never populated in client payloads. If the client ever needs a word count, add a dedicated `hatSize?: number` public field instead.
+
 ### Changes Required
 
 **File**: `shared/src/types.ts`
@@ -102,7 +104,6 @@ export type Game = {
   status: 'lobby' | 'in_progress' | 'round_over' | 'finished'
   players: Player[]
   hostId?: string
-  hat?: Word[]
   activeTeam?: 1 | 2
   currentClueGiverId?: string
   turnPhase?: 'ready' | 'active'
@@ -149,10 +150,10 @@ skipWord(joinCode: string, playerId: string): Promise<Game>
 
 **File**: `server/src/store/InMemoryGameStore.ts`
 
-Add an `InternalGame` type at the top of the file (after imports):
+Add an `InternalGame` type at the top of the file (after imports). Export it so `toPublicGame` in the route layer can reference it as its parameter type — this creates a single source of truth for internal fields, and the compiler will enforce that `toPublicGame` is updated whenever `InternalGame` grows:
 
 ```ts
-type InternalGame = Game & {
+export type InternalGame = Game & {
   hat: Word[]
   skippedThisTurn: string[]  // word IDs skipped this turn
   currentWordId?: string     // ID of the word currently being described
@@ -181,7 +182,11 @@ const allWords: Word[] = game.players.flatMap((p) =>
 
 The Fisher-Yates shuffle body is unchanged — it operates on the array regardless of element type.
 
-#### 3. Private helpers
+#### 3. Logging guidance
+
+Any structured log lines added in the store methods (e.g. recording which word was guessed, hat size, etc.) must use `logger.debug` — **not** `logger.info` — when they include game word content. The hat word list is sensitive game data that should only appear in logs during active debugging, not in default production output. The log level will be raised to `info` in development and kept at `warn`/`error` in production as needed.
+
+#### 4. Private helpers
 
 Add after the existing `subscribe` method:
 
@@ -235,10 +240,15 @@ async guessWord(joinCode: string, playerId: string): Promise<Game> {
   if (game.turnPhase !== 'active') throw new AppError('TURN_NOT_ACTIVE', 'Turn is not active')
   if (!game.currentWordId) throw new AppError('INVALID_STATE', 'No current word set')
 
+  // Guard optional fields before any mutation — ensures no partial state corruption
+  if (!game.scores) throw new AppError('INVALID_STATE', 'Game scores not initialised')
+  if (!game.activeTeam) throw new AppError('INVALID_STATE', 'Active team not set')
+  if (!game.currentWord) throw new AppError('INVALID_STATE', 'Current word text not set')
+
   const currentId = game.currentWordId
-  const currentText = game.currentWord!
+  const currentText = game.currentWord
   game.hat = game.hat.filter((w) => w.id !== currentId)
-  game.scores![game.activeTeam === 1 ? 'team1' : 'team2']++
+  game.scores[game.activeTeam === 1 ? 'team1' : 'team2']++
   game.guessedThisTurn = [...(game.guessedThisTurn ?? []), currentText]
 
   if (game.hat.length === 0) {
@@ -344,10 +354,12 @@ Extract a `toPublicGame` helper for consistent field stripping. Fix the existing
 
 **File**: `server/src/routes/games.ts`
 
-Add near the top of the file (after the validator functions):
+Add near the top of the file (after the validator functions). Accept `InternalGame` as the parameter type so TypeScript enforces that `toPublicGame` is updated whenever `InternalGame` grows — the compiler will flag any new internal field that isn't stripped here:
 
 ```ts
-function toPublicGame(game: Game & { hat?: unknown; skippedThisTurn?: unknown; currentWordId?: unknown }) {
+import type { InternalGame } from '../store/InMemoryGameStore.js'
+
+function toPublicGame(game: InternalGame) {
   const { hat: _hat, skippedThisTurn: _skipped, currentWordId: _id, ...publicGame } = game
   return publicGame
 }
@@ -356,7 +368,7 @@ function toPublicGame(game: Game & { hat?: unknown; skippedThisTurn?: unknown; c
 Replace all existing `const { hat: _hat, ...publicGame } = game` destructurings with
 `toPublicGame(game)` — there are three in the SSE handler and GET handler. This is the
 single authoritative definition of what is public; any future server-internal field
-needs only one change here.
+needs only one change here (adding it to `InternalGame` and destructuring it out in `toPublicGame`).
 
 #### 2. Fix `POST /:joinCode/start` — existing hat leak
 
@@ -387,6 +399,7 @@ router.post('/:joinCode/ready', async (req, res, next) => {
     if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: err.message })
     if (err instanceof AppError && err.code === 'TURN_ALREADY_ACTIVE') return res.status(422).json({ error: err.message })
     if (err instanceof AppError && err.code === 'TURN_NOT_ALLOWED') return res.status(422).json({ error: err.message })
+    if (err instanceof AppError && err.code === 'HAT_EMPTY') return res.status(422).json({ error: err.message })
     next(err)
   }
 })
@@ -409,6 +422,7 @@ router.post('/:joinCode/guess', async (req, res, next) => {
     if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: err.message })
     if (err instanceof AppError && err.code === 'TURN_NOT_ACTIVE') return res.status(422).json({ error: err.message })
     if (err instanceof AppError && err.code === 'TURN_NOT_ALLOWED') return res.status(422).json({ error: err.message })
+    if (err instanceof AppError && err.code === 'INVALID_STATE') return res.status(500).json({ error: 'Internal game state error — please reload' })
     next(err)
   }
 })
@@ -431,6 +445,7 @@ router.post('/:joinCode/skip', async (req, res, next) => {
     if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: err.message })
     if (err instanceof AppError && err.code === 'TURN_NOT_ACTIVE') return res.status(422).json({ error: err.message })
     if (err instanceof AppError && err.code === 'TURN_NOT_ALLOWED') return res.status(422).json({ error: err.message })
+    if (err instanceof AppError && err.code === 'INVALID_STATE') return res.status(500).json({ error: 'Internal game state error — please reload' })
     next(err)
   }
 })
@@ -458,18 +473,20 @@ Test cases per endpoint (success + each error):
 - Returns 403 when store throws `FORBIDDEN`
 - Returns 422 when store throws `TURN_ALREADY_ACTIVE`
 - Returns 422 when store throws `TURN_NOT_ALLOWED`
+- Returns 422 when store throws `HAT_EMPTY`
 
 **`POST /guess`:**
-- Returns 200 with updated public game
-- Response body does not contain `hat`, `skippedThisTurn`, or `currentWordId`
+- Returns 200 with updated public game; response body does not contain `hat`, `skippedThisTurn`, or `currentWordId`
+- Returns 200 with `status: 'round_over'` and `scores` when mock returns a round-over state (verifies the route passes through round-over correctly)
 - Returns 400 when `playerId` is missing
-- Returns 404, 403, 422 for respective store errors
+- Returns 404, 403, 422 for respective store errors (`NOT_FOUND`, `FORBIDDEN`, `TURN_NOT_ACTIVE`, `TURN_NOT_ALLOWED`)
+- Returns 500 when store throws `INVALID_STATE`
 
 **`POST /skip`:**
-- Returns 200 with updated public game
-- Response body does not contain `hat`, `skippedThisTurn`, or `currentWordId`
+- Returns 200 with updated public game; response body does not contain `hat`, `skippedThisTurn`, or `currentWordId`
 - Returns 400 when `playerId` is missing
 - Returns 404, 403, 422 for respective store errors
+- Returns 500 when store throws `INVALID_STATE`
 
 ### Success Criteria
 
@@ -493,19 +510,20 @@ when `status === 'round_over'`.
 
 **File**: `client/src/pages/GamePage.tsx`
 
-#### 1. `GamePage` — move `round_over` check before `clueGiver` lookup
+#### 1. `GamePage` — guard ordering: `round_over` check before `currentClueGiverId` guard
 
-The `round_over` early-return must occur **before** the `currentClueGiverId` guard,
-not after it. ENG-012 (turn rotation) is likely to clear `currentClueGiverId` on
-round end — if that guard fires first, all players would see an infinite loading
-spinner instead of the score summary.
+The loading guard and `round_over` check **must be separate** and in this order:
+1. `if (!game)` → return loading spinner (game data not yet arrived)
+2. `if (game.status === 'round_over')` → return `RoundOverView`
+3. `if (!game.currentClueGiverId)` → return loading spinner (in-progress game but clue giver not yet set)
 
-Insert the `round_over` check immediately after the loading guard (after the
-`if (!game || !game.currentClueGiverId)` block), before the `clueGiver` lookup:
+Do NOT combine steps 1 and 3 into a single `if (!game || !game.currentClueGiverId)` check. ENG-012 (turn rotation) will clear `currentClueGiverId` when the round ends — if the combined guard fires first, all players will see "Loading..." indefinitely instead of the score summary.
 
 ```tsx
-// After the !game || !game.currentClueGiverId loading guard:
+// Step 1: game data not yet arrived
+if (!game) return <LoadingSpinner />
 
+// Step 2: round is over — show summary before checking clue giver (ENG-012 will clear currentClueGiverId on round end)
 if (game.status === 'round_over') {
   return (
     <div className="flex min-h-screen flex-col items-center bg-brand-cream px-4 py-8">
@@ -546,8 +564,7 @@ return (
 
 #### 2. `ClueGiverView` — Start Turn + active turn UI
 
-Replace the static disabled button. Wrap each `await fetch` in `try/finally` so
-`setLoading(false)` always executes even on network failure:
+Replace the static disabled button. Extract a single `callGameAction` helper to avoid repeating the `setLoading`/`setError`/`fetch`/`finally` pattern for every action. Check `response.ok` so that HTTP 4xx/5xx responses (not just network failures) surface as error messages — without this check, a server rejection silently re-enables the button with no feedback to the user:
 
 ```tsx
 function ClueGiverView({
@@ -562,47 +579,18 @@ function ClueGiverView({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function handleReady() {
+  async function callGameAction(action: string) {
     setLoading(true)
     setError(null)
     try {
-      await fetch(`/api/games/${joinCode}/ready`, {
+      const response = await fetch(`/api/games/${joinCode}/${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ playerId }),
       })
-    } catch {
-      setError('Something went wrong — please try again')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handleGuess() {
-    setLoading(true)
-    setError(null)
-    try {
-      await fetch(`/api/games/${joinCode}/guess`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerId }),
-      })
-    } catch {
-      setError('Something went wrong — please try again')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handleSkip() {
-    setLoading(true)
-    setError(null)
-    try {
-      await fetch(`/api/games/${joinCode}/skip`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerId }),
-      })
+      if (!response.ok) {
+        setError('Something went wrong — please try again')
+      }
     } catch {
       setError('Something went wrong — please try again')
     } finally {
@@ -616,7 +604,7 @@ function ClueGiverView({
         <p className="text-xl font-semibold text-gray-900">You are describing!</p>
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
         <button
-          onClick={handleReady}
+          onClick={() => callGameAction('ready')}
           disabled={loading}
           className="rounded-xl bg-brand-coral px-8 py-3 text-sm font-semibold text-white disabled:opacity-40 disabled:cursor-not-allowed"
         >
@@ -633,14 +621,14 @@ function ClueGiverView({
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
       <div className="flex gap-4">
         <button
-          onClick={handleGuess}
+          onClick={() => callGameAction('guess')}
           disabled={loading}
           className="rounded-xl bg-brand-coral px-8 py-3 text-sm font-semibold text-white disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Guessed!
         </button>
         <button
-          onClick={handleSkip}
+          onClick={() => callGameAction('skip')}
           disabled={loading}
           className="rounded-xl bg-gray-200 px-8 py-3 text-sm font-semibold text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
         >
@@ -737,6 +725,7 @@ function RoundOverView({ scores }: { scores: { team1: number; team2: number } })
 #### Automated Verification
 
 - [x] TypeScript compiles: `cd client && pnpm build`
+- [x] All server tests pass: `cd server && pnpm test`
 
 #### Manual Verification
 

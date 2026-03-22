@@ -7,7 +7,7 @@ import { logger } from '../logger.js'
 
 const MAX_JOIN_CODE_ATTEMPTS = 10
 
-type InternalGame = Game & {
+export type InternalGame = Game & {
   hat: Word[]
   skippedThisTurn: string[]  // word IDs skipped this turn
   currentWordId?: string     // ID of the word currently being described
@@ -147,7 +147,7 @@ export class InMemoryGameStore implements GameStore {
     })
 
     const clueGiver = game.players.find((p) => p.id === playerId)
-    logger.info('Turn started', {
+    logger.debug('Turn started', {
       joinCode,
       activeTeam: game.activeTeam,
       clueGiver: clueGiver?.name,
@@ -165,15 +165,18 @@ export class InMemoryGameStore implements GameStore {
     const game = this.assertClueGiverTurn(joinCode, playerId)
     if (game.turnPhase !== 'active') throw new AppError('TURN_NOT_ACTIVE', 'Turn is not active')
     if (!game.currentWordId) throw new AppError('INVALID_STATE', 'No current word set')
+    if (!game.scores) throw new AppError('INVALID_STATE', 'Game scores not initialised')
+    if (!game.activeTeam) throw new AppError('INVALID_STATE', 'Active team not set')
+    if (!game.currentWord) throw new AppError('INVALID_STATE', 'Current word text not set')
 
     const currentId = game.currentWordId
-    const currentText = game.currentWord!
+    const currentText = game.currentWord
     game.hat = game.hat.filter((w) => w.id !== currentId)
-    game.scores![game.activeTeam === 1 ? 'team1' : 'team2']++
+    game.scores[game.activeTeam === 1 ? 'team1' : 'team2']++
     game.guessedThisTurn = [...(game.guessedThisTurn ?? []), currentText]
 
     if (game.hat.length === 0) {
-      logger.info('Word guessed — hat empty, round over', {
+      logger.debug('Word guessed — hat empty, round over', {
         joinCode,
         guessedWord: currentText,
         guessedThisTurn: game.guessedThisTurn,
@@ -189,7 +192,7 @@ export class InMemoryGameStore implements GameStore {
       const next = this.drawNextWord(game.hat, null, game.skippedThisTurn)
       game.currentWord = next?.text
       game.currentWordId = next?.id
-      logger.info('Word guessed', {
+      logger.debug('Word guessed', {
         joinCode,
         guessedWord: currentText,
         nextWord: next?.text,
@@ -220,7 +223,7 @@ export class InMemoryGameStore implements GameStore {
     }
     // else: currentWord stays — only the just-skipped word remains, player must describe it
 
-    logger.info('Word skipped', {
+    logger.debug('Word skipped', {
       joinCode,
       skippedWord: current.text,
       nextWord: next?.text ?? current.text,

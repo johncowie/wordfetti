@@ -20,7 +20,6 @@ export type Game = {
   status: 'lobby' | 'in_progress' | 'round_over' | 'finished'
   players: Player[]
   hostId?: string
-  hat?: Word[]
   activeTeam?: 1 | 2
   currentClueGiverId?: string
   turnPhase?: 'ready' | 'active'

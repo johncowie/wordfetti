@@ -482,6 +482,12 @@ describe('POST /api/games/:joinCode/ready', () => {
     const res = await request(buildApp(store)).post('/ABC123/ready').send({ playerId: 'p1' })
     expect(res.status).toBe(422)
   })
+
+  it('returns 422 when store throws HAT_EMPTY', async () => {
+    const store = mockStore({ readyTurn: async () => { throw new AppError('HAT_EMPTY', 'Hat is empty') } })
+    const res = await request(buildApp(store)).post('/ABC123/ready').send({ playerId: 'p1' })
+    expect(res.status).toBe(422)
+  })
 })
 
 describe('POST /api/games/:joinCode/guess', () => {
@@ -534,6 +540,25 @@ describe('POST /api/games/:joinCode/guess', () => {
     const res = await request(buildApp(store)).post('/ABC123/guess').send({ playerId: 'p1' })
     expect(res.status).toBe(422)
   })
+
+  it('returns 500 when store throws INVALID_STATE', async () => {
+    const store = mockStore({ guessWord: async () => { throw new AppError('INVALID_STATE', 'Bad state') } })
+    const res = await request(buildApp(store)).post('/ABC123/guess').send({ playerId: 'p1' })
+    expect(res.status).toBe(500)
+  })
+
+  it('returns round_over status and scores when hat empties', async () => {
+    const store = mockStore({
+      guessWord: async () => ({
+        id: 'test-id', joinCode: 'ABC123', status: 'round_over' as const, players: [],
+        scores: { team1: 3, team2: 2 },
+      }),
+    })
+    const res = await request(buildApp(store)).post('/ABC123/guess').send({ playerId: 'p1' })
+    expect(res.status).toBe(200)
+    expect(res.body.status).toBe('round_over')
+    expect(res.body.scores).toEqual({ team1: 3, team2: 2 })
+  })
 })
 
 describe('POST /api/games/:joinCode/skip', () => {
@@ -585,6 +610,12 @@ describe('POST /api/games/:joinCode/skip', () => {
     const store = mockStore({ skipWord: async () => { throw new AppError('TURN_NOT_ALLOWED', 'Not in progress') } })
     const res = await request(buildApp(store)).post('/ABC123/skip').send({ playerId: 'p1' })
     expect(res.status).toBe(422)
+  })
+
+  it('returns 500 when store throws INVALID_STATE', async () => {
+    const store = mockStore({ skipWord: async () => { throw new AppError('INVALID_STATE', 'Bad state') } })
+    const res = await request(buildApp(store)).post('/ABC123/skip').send({ playerId: 'p1' })
+    expect(res.status).toBe(500)
   })
 })
 
