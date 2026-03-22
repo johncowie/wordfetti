@@ -3,6 +3,7 @@ import { WORDS_PER_PLAYER, type Game, type Player, type Team, type Word } from '
 import type { GameStore } from './GameStore.js'
 import { generateJoinCode } from './joinCode.js'
 import { AppError } from '../errors.js'
+import { logger } from '../logger.js'
 
 const MAX_JOIN_CODE_ATTEMPTS = 10
 
@@ -145,6 +146,16 @@ export class InMemoryGameStore implements GameStore {
       guessedThisTurn: [],
     })
 
+    const clueGiver = game.players.find((p) => p.id === playerId)
+    logger.info('Turn started', {
+      joinCode,
+      activeTeam: game.activeTeam,
+      clueGiver: clueGiver?.name,
+      firstWord: firstWord.text,
+      wordsRemainingInHat: game.hat.length,
+      hat: game.hat.map((w) => w.text),
+    })
+
     const snapshot = { ...game, players: [...game.players] }
     this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
     return snapshot
@@ -162,6 +173,12 @@ export class InMemoryGameStore implements GameStore {
     game.guessedThisTurn = [...(game.guessedThisTurn ?? []), currentText]
 
     if (game.hat.length === 0) {
+      logger.info('Word guessed — hat empty, round over', {
+        joinCode,
+        guessedWord: currentText,
+        guessedThisTurn: game.guessedThisTurn,
+        scores: game.scores,
+      })
       Object.assign(game, {
         status: 'round_over',
         currentWord: undefined,
@@ -172,6 +189,15 @@ export class InMemoryGameStore implements GameStore {
       const next = this.drawNextWord(game.hat, null, game.skippedThisTurn)
       game.currentWord = next?.text
       game.currentWordId = next?.id
+      logger.info('Word guessed', {
+        joinCode,
+        guessedWord: currentText,
+        nextWord: next?.text,
+        wordsRemainingInHat: game.hat.length,
+        hat: game.hat.map((w) => w.text),
+        guessedThisTurn: game.guessedThisTurn,
+        scores: game.scores,
+      })
     }
 
     const snapshot = { ...game, players: [...game.players] }
@@ -193,6 +219,16 @@ export class InMemoryGameStore implements GameStore {
       game.currentWordId = next.id
     }
     // else: currentWord stays — only the just-skipped word remains, player must describe it
+
+    logger.info('Word skipped', {
+      joinCode,
+      skippedWord: current.text,
+      nextWord: next?.text ?? current.text,
+      wordsRemainingInHat: game.hat.length,
+      hat: game.hat.map((w) => w.text),
+      skippedThisTurn: game.skippedThisTurn.map((id) => game.hat.find((w) => w.id === id)?.text ?? id),
+      guessedThisTurn: game.guessedThisTurn,
+    })
 
     const snapshot = { ...game, players: [...game.players] }
     this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
