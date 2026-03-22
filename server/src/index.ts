@@ -11,6 +11,7 @@ const app = express()
 const store = new InMemoryGameStore()
 
 const corsOrigin = process.env.CORS_ORIGIN ?? 'http://localhost:5173'
+app.set('trust proxy', 1) // Trust first proxy (reverse proxy in Docker)
 app.use(helmet())
 app.use(cors({ origin: corsOrigin }))
 app.use(express.json())
