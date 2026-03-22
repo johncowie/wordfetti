@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "concurrently \"pnpm --filter server dev\" \"pnpm --filter client dev\"",
     "build": "pnpm --filter shared build && pnpm --filter server build && pnpm --filter client build",
-    "test": "pnpm --filter server test"
+    "test": "pnpm --filter server test",
+    "typecheck": "pnpm --filter shared typecheck && pnpm --filter server typecheck && pnpm --filter client typecheck",
+    "check": "pnpm typecheck && pnpm test && pnpm build"
   },
   "devDependencies": {
     "concurrently": "^9.0.0"
