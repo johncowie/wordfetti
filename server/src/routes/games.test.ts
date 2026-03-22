@@ -21,6 +21,7 @@ const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
   readyTurn: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], turnPhase: 'active' as const, currentWord: 'cat' }),
   guessWord: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], currentWord: 'dog' }),
   skipWord: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], currentWord: 'fish' }),
+  endTurn: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], turnPhase: 'ready' as const }),
   addWord: async () => ({ id: 'w1', text: 'banana' }),
   getWords: async () => [],
   deleteWord: async () => undefined,
@@ -616,6 +617,77 @@ describe('POST /api/games/:joinCode/skip', () => {
     const store = mockStore({ skipWord: async () => { throw new AppError('INVALID_STATE', 'Bad state') } })
     const res = await request(buildApp(store)).post('/ABC123/skip').send({ playerId: 'p1' })
     expect(res.status).toBe(500)
+  })
+})
+
+describe('POST /api/games/:joinCode/end-turn', () => {
+  it('returns 200 with updated game', async () => {
+    const res = await request(buildApp(mockStore()))
+      .post('/ABC123/end-turn')
+      .send({ playerId: 'p1' })
+    expect(res.status).toBe(200)
+    expect(res.body.turnPhase).toBe('ready')
+  })
+
+  it('response body does not contain clueGiverIndices', async () => {
+    const store = mockStore({
+      endTurn: async () => ({
+        id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [],
+        turnPhase: 'ready' as const,
+        clueGiverIndices: { 1: 1, 2: 0 },
+      } as Game & { clueGiverIndices: unknown }),
+    })
+    const res = await request(buildApp(store)).post('/ABC123/end-turn').send({ playerId: 'p1' })
+    expect(res.status).toBe(200)
+    expect(res.body).not.toHaveProperty('clueGiverIndices')
+  })
+
+  it('returns 400 when playerId is missing', async () => {
+    const res = await request(buildApp(mockStore())).post('/ABC123/end-turn').send({})
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 404 when store throws NOT_FOUND', async () => {
+    const store = mockStore({ endTurn: async () => { throw new AppError('NOT_FOUND', 'Game not found') } })
+    const res = await request(buildApp(store)).post('/ABC123/end-turn').send({ playerId: 'p1' })
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 403 when store throws FORBIDDEN', async () => {
+    const store = mockStore({ endTurn: async () => { throw new AppError('FORBIDDEN', 'Not clue giver') } })
+    const res = await request(buildApp(store)).post('/ABC123/end-turn').send({ playerId: 'p1' })
+    expect(res.status).toBe(403)
+  })
+
+  it('returns 422 when store throws TURN_NOT_ACTIVE', async () => {
+    const store = mockStore({ endTurn: async () => { throw new AppError('TURN_NOT_ACTIVE', 'Not active') } })
+    const res = await request(buildApp(store)).post('/ABC123/end-turn').send({ playerId: 'p1' })
+    expect(res.status).toBe(422)
+  })
+
+  it('returns 422 when store throws TURN_NOT_ALLOWED', async () => {
+    const store = mockStore({ endTurn: async () => { throw new AppError('TURN_NOT_ALLOWED', 'Not in progress') } })
+    const res = await request(buildApp(store)).post('/ABC123/end-turn').send({ playerId: 'p1' })
+    expect(res.status).toBe(422)
+  })
+
+  it('returns 500 when store throws INVALID_STATE', async () => {
+    const store = mockStore({ endTurn: async () => { throw new AppError('INVALID_STATE', 'Bad state') } })
+    const res = await request(buildApp(store)).post('/ABC123/end-turn').send({ playerId: 'p1' })
+    expect(res.status).toBe(500)
+  })
+
+  it('returns round_over status when the hat empties', async () => {
+    const store = mockStore({
+      endTurn: async () => ({
+        id: 'test-id', joinCode: 'ABC123', status: 'round_over' as const, players: [],
+        scores: { team1: 2, team2: 3 },
+      }),
+    })
+    const res = await request(buildApp(store)).post('/ABC123/end-turn').send({ playerId: 'p1' })
+    expect(res.status).toBe(200)
+    expect(res.body.status).toBe('round_over')
+    expect(res.body.scores).toEqual({ team1: 2, team2: 3 })
   })
 })
 

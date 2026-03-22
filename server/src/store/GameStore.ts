@@ -8,6 +8,7 @@ export interface GameStore {
   subscribe(joinCode: string, callback: (game: Game) => void): () => void
   startGame(joinCode: string): Promise<Game>
   readyTurn(joinCode: string, playerId: string): Promise<Game>
+  endTurn(joinCode: string, playerId: string): Promise<Game>
   guessWord(joinCode: string, playerId: string): Promise<Game>
   skipWord(joinCode: string, playerId: string): Promise<Game>
   addWord(joinCode: string, playerId: string, text: string): Promise<Word>

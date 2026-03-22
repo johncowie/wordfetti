@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import type { Game } from '@wordfetti/shared'
+import { TURN_DURATION_SECONDS } from '@wordfetti/shared'
 import { Logo } from '../components/Logo'
 import { loadSession } from '../session'
 import { useGameState } from '../hooks/useGameState'
@@ -49,7 +50,7 @@ export function GamePage() {
   }
 
   // Round over check must come before the currentClueGiverId guard because
-  // ENG-012 will clear currentClueGiverId when the round ends.
+  // endTurn and guessWord both clear currentClueGiverId when the round ends.
   if (game.status === 'round_over') {
     return (
       <div className="flex min-h-screen flex-col items-center bg-brand-cream px-4 py-8">
@@ -85,9 +86,17 @@ export function GamePage() {
         {isClueGiver && (
           <ClueGiverView game={game} joinCode={joinCode!} playerId={currentPlayerId!} />
         )}
-        {isGuesser && <GuesserView clueGiverName={clueGiver.name} />}
-        {!isClueGiver && !isGuesser && (
+        {!isClueGiver && game.turnPhase === 'ready' && (
+          <WaitingView clueGiverName={clueGiver.name} />
+        )}
+        {!isClueGiver && game.turnPhase === 'active' && isGuesser && (
+          <GuesserView clueGiverName={clueGiver.name} />
+        )}
+        {!isClueGiver && game.turnPhase === 'active' && !isGuesser && (
           <SpectatorView clueGiverName={clueGiver.name} team={clueGiver.team} game={game} />
+        )}
+        {!isClueGiver && game.turnPhase !== 'ready' && game.turnPhase !== 'active' && (
+          <p role="status" className="text-gray-400">Loading...</p>
         )}
       </div>
     </div>
@@ -107,6 +116,41 @@ function ClueGiverView({
 }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const timerFiredRef = useRef(false)
+  const [, setTick] = useState(0)
+  const [turnEnding, setTurnEnding] = useState(false)
+
+  useEffect(() => {
+    if (game.turnPhase !== 'active' || !game.turnStartedAt) return
+    timerFiredRef.current = false
+    setTurnEnding(false)
+
+    const interval = setInterval(async () => {
+      setTick((t) => t + 1)
+
+      const elapsed = Math.floor((Date.now() - Date.parse(game.turnStartedAt!)) / 1000)
+      if (elapsed >= TURN_DURATION_SECONDS && !timerFiredRef.current) {
+        timerFiredRef.current = true
+        clearInterval(interval)
+        setTurnEnding(true)
+        try {
+          await fetch(`/api/games/${joinCode}/end-turn`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ playerId }),
+          })
+        } catch {
+          setTurnEnding(false)
+        }
+      }
+    }, 500)
+
+    return () => clearInterval(interval)
+  }, [game.turnPhase, game.turnStartedAt, joinCode, playerId])
+
+  const secondsLeft = game.turnStartedAt
+    ? Math.max(0, TURN_DURATION_SECONDS - Math.floor((Date.now() - Date.parse(game.turnStartedAt)) / 1000))
+    : TURN_DURATION_SECONDS
 
   async function callGameAction(action: 'ready' | 'guess' | 'skip') {
     setLoading(true)
@@ -139,7 +183,7 @@ function ClueGiverView({
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
         <button
           onClick={handleReady}
-          disabled={loading}
+          disabled={loading || turnEnding}
           className="rounded-xl bg-brand-coral px-8 py-3 text-sm font-semibold text-white disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Start Turn
@@ -150,25 +194,36 @@ function ClueGiverView({
 
   return (
     <div className="mt-8 flex flex-col items-center gap-6 text-center">
+      <p className="text-sm text-gray-500">{secondsLeft}s</p>
       <p className="text-sm font-medium uppercase tracking-wide text-gray-500">Describe this word</p>
       <p className="text-4xl font-bold text-gray-900">{game.currentWord}</p>
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
       <div className="flex gap-4">
         <button
           onClick={handleGuess}
-          disabled={loading}
+          disabled={loading || turnEnding}
           className="rounded-xl bg-brand-coral px-8 py-3 text-sm font-semibold text-white disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Guessed!
         </button>
         <button
           onClick={handleSkip}
-          disabled={loading}
+          disabled={loading || turnEnding}
           className="rounded-xl bg-gray-200 px-8 py-3 text-sm font-semibold text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Skip
         </button>
       </div>
+    </div>
+  )
+}
+
+function WaitingView({ clueGiverName }: { clueGiverName: string }) {
+  return (
+    <div className="mt-8 text-center">
+      <p className="text-xl font-semibold text-gray-900">
+        Waiting for <span className="text-brand-coral">{clueGiverName}</span> to start their turn...
+      </p>
     </div>
   )
 }

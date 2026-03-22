@@ -587,3 +587,110 @@ describe('skipWord', () => {
     await expect(store.skipWord(joinCode, clueGiverId)).rejects.toMatchObject({ code: 'TURN_NOT_ALLOWED' })
   })
 })
+
+describe('readyTurn — turnStartedAt', () => {
+  it('sets turnStartedAt to a valid ISO timestamp within 2 seconds of now', async () => {
+    const { store, joinCode, game: started } = await setupStartedGame()
+    const before = Date.now()
+    const game = await store.readyTurn(joinCode, started.currentClueGiverId!)
+    expect(typeof game.turnStartedAt).toBe('string')
+    const parsed = Date.parse(game.turnStartedAt!)
+    expect(parsed).not.toBeNaN()
+    expect(Math.abs(Date.now() - parsed)).toBeLessThan(2000)
+    expect(parsed).toBeGreaterThanOrEqual(before)
+  })
+})
+
+describe('endTurn', () => {
+  it('throws FORBIDDEN when caller is not the clue giver', async () => {
+    const { store, joinCode, clueGiverId, game } = await setupActiveGame()
+    const other = game.players.find((p) => p.id !== clueGiverId)!
+    await expect(store.endTurn(joinCode, other.id)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('throws TURN_NOT_ACTIVE when turnPhase is ready (not yet started)', async () => {
+    const { store, joinCode, game: started } = await setupStartedGame()
+    await expect(store.endTurn(joinCode, started.currentClueGiverId!)).rejects.toMatchObject({ code: 'TURN_NOT_ACTIVE' })
+  })
+
+  it('rotates to the other team, picks first player on that team, and resets turn state', async () => {
+    const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
+    const startingTeam = active.activeTeam as 1 | 2
+    const otherTeamPlayers = active.players.filter((p) => p.team !== startingTeam)
+
+    const after = await store.endTurn(joinCode, clueGiverId)
+
+    expect(after.activeTeam).toBe(startingTeam === 1 ? 2 : 1)
+    expect(after.currentClueGiverId).toBe(otherTeamPlayers[0].id)
+    expect(after.turnPhase).toBe('ready')
+    expect(after.currentWord).toBeUndefined()
+    expect(after.turnStartedAt).toBeUndefined()
+    expect((after as InternalGame).hat.length).toBe((active as InternalGame).hat.length)
+  })
+
+  it('first endTurn assigns first player on the other team — verifies startGame seed is correct', async () => {
+    const { store, joinCode, game: started } = await setupStartedGame()
+    const clueGiverId = started.currentClueGiverId!
+    const startingTeam = started.activeTeam as 1 | 2
+    const otherTeamPlayers = started.players.filter((p) => p.team !== startingTeam)
+
+    await store.readyTurn(joinCode, clueGiverId)
+    const after = await store.endTurn(joinCode, clueGiverId)
+
+    expect(after.currentClueGiverId).toBe(otherTeamPlayers[0].id)
+  })
+
+  it('rotates clue giver correctly through a full 4-turn cycle', async () => {
+    const { store, joinCode, game: started } = await setupStartedGame()
+    const clueGiverId = started.currentClueGiverId!
+    const startingTeam = started.activeTeam as 1 | 2
+    const startingTeamPlayers = started.players.filter((p) => p.team === startingTeam)
+    const otherTeamPlayers = started.players.filter((p) => p.team !== startingTeam)
+
+    // Verify initial clue giver is first player on starting team
+    expect(clueGiverId).toBe(startingTeamPlayers[0].id)
+
+    // Turn 1: starting team p[0] → endTurn → other team p[0]
+    await store.readyTurn(joinCode, clueGiverId)
+    const after1 = await store.endTurn(joinCode, clueGiverId)
+    expect(after1.currentClueGiverId).toBe(otherTeamPlayers[0].id)
+
+    // Turn 2: other team p[0] → endTurn → starting team p[1]
+    await store.readyTurn(joinCode, otherTeamPlayers[0].id)
+    const after2 = await store.endTurn(joinCode, otherTeamPlayers[0].id)
+    expect(after2.currentClueGiverId).toBe(startingTeamPlayers[1].id)
+
+    // Turn 3: starting team p[1] → endTurn → other team p[1]
+    await store.readyTurn(joinCode, startingTeamPlayers[1].id)
+    const after3 = await store.endTurn(joinCode, startingTeamPlayers[1].id)
+    expect(after3.currentClueGiverId).toBe(otherTeamPlayers[1].id)
+
+    // Turn 4: other team p[1] → endTurn → starting team p[0] (wraps back)
+    await store.readyTurn(joinCode, otherTeamPlayers[1].id)
+    const after4 = await store.endTurn(joinCode, otherTeamPlayers[1].id)
+    expect(after4.currentClueGiverId).toBe(startingTeamPlayers[0].id)
+  })
+
+  it('broadcasts updated game to subscribers', async () => {
+    const { store, joinCode, clueGiverId } = await setupActiveGame()
+    const updates: Game[] = []
+    store.subscribe(joinCode, (g) => updates.push(g))
+    await store.endTurn(joinCode, clueGiverId)
+    expect(updates).toHaveLength(1)
+    expect(updates[0].turnPhase).toBe('ready')
+  })
+
+  it('when hat is empty (defensive guard) transitions to round_over with currentClueGiverId cleared', async () => {
+    const { store, joinCode, clueGiverId } = await setupActiveGame()
+    // Force-empty the hat — this state is not reachable via the public API
+    const internal = (await store.getGameByJoinCode(joinCode)) as InternalGame
+    // Access internal state directly via the store's private map through cast
+    // We cast because we need to manipulate internal-only state for this edge case test
+    const internalGame = store['games'].get(joinCode) as InternalGame
+    internalGame.hat = []
+
+    const after = await store.endTurn(joinCode, clueGiverId)
+    expect(after.status).toBe('round_over')
+    expect(after.currentClueGiverId).toBeUndefined()
+  })
+})

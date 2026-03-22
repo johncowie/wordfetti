@@ -4,8 +4,8 @@ import type { GameStore } from '../store/GameStore.js'
 import { WORDS_PER_PLAYER, type Team } from '@wordfetti/shared'
 import { AppError } from '../errors.js'
 
-function toPublicGame(game: Game & { hat?: unknown; skippedThisTurn?: unknown; currentWordId?: unknown }) {
-  const { hat: _hat, skippedThisTurn: _skipped, currentWordId: _id, ...publicGame } = game
+function toPublicGame(game: Game & { hat?: unknown; skippedThisTurn?: unknown; currentWordId?: unknown; clueGiverIndices?: unknown }) {
+  const { hat: _hat, skippedThisTurn: _skipped, currentWordId: _id, clueGiverIndices: _indices, ...publicGame } = game
   return publicGame
 }
 
@@ -244,6 +244,26 @@ export function createGamesRouter(store: GameStore): Router {
         return res.status(400).json({ error: 'playerId is required' })
       }
       const updated = await store.skipWord(joinCode, playerId)
+      return res.json(toPublicGame(updated))
+    } catch (err: unknown) {
+      if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'TURN_NOT_ACTIVE') return res.status(422).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'TURN_NOT_ALLOWED') return res.status(422).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'INVALID_STATE') return res.status(500).json({ error: err.message })
+      next(err)
+    }
+  })
+
+  // POST /:joinCode/end-turn — clue giver ends their turn early (timer expired or manual)
+  router.post('/:joinCode/end-turn', async (req, res, next) => {
+    try {
+      const joinCode = req.params.joinCode.toUpperCase()
+      const { playerId } = req.body ?? {}
+      if (typeof playerId !== 'string' || !playerId) {
+        return res.status(400).json({ error: 'playerId is required' })
+      }
+      const updated = await store.endTurn(joinCode, playerId)
       return res.json(toPublicGame(updated))
     } catch (err: unknown) {
       if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })

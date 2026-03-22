@@ -29,7 +29,7 @@ The turn duration **must be defined as a single named constant** — not inlined
 
 Define it in the shared package so both client (countdown display) and any future server-side enforcement can reference the same value:
 
-**File:** `shared/src/types.ts` (or a dedicated `shared/src/constants.ts`)
+**File:** `shared/src/types.ts` — consistent with the existing `WORDS_PER_PLAYER` constant already exported from that file.
 
 ```typescript
 export const TURN_DURATION_SECONDS = 60
@@ -61,9 +61,13 @@ In `InMemoryGameStore.test.ts`, add failing tests for `endTurn` before implement
 
 - `endTurn` with a non-clue-giver throws `FORBIDDEN`
 - `endTurn` when `turnPhase !== 'active'` throws `TURN_NOT_ACTIVE`
-- `endTurn` success: rotates `activeTeam`, advances `currentClueGiverId` to next player on new team, sets `turnPhase: 'ready'`, clears `currentWord`/`turnStartedAt`, hat word count unchanged
-- `endTurn` when hat is empty: transitions to `'round_over'` (edge case — hat always contains current word, but guard defensively)
-- `readyTurn` success: `turnStartedAt` is set to a non-null ISO string
+- `endTurn` success: rotates `activeTeam` to the other team, sets `currentClueGiverId` to the first player on the new team (index 0), sets `turnPhase: 'ready'`, clears `currentWord` and `turnStartedAt`, hat word count unchanged
+- `endTurn` broadcasts updated game to subscribers
+- `endTurn` rotation — **deterministic 4-step sequence** with 2 players per team: assert the exact `currentClueGiverId` after each `endTurn` call. Expected pattern (call `setupActiveGame` to start): turn 1 = team A player[0] (from `startGame`); after `endTurn` → team B player[0]; after 2nd `endTurn` → team A player[1]; after 3rd `endTurn` → team B player[1]; after 4th `endTurn` → team A player[0] (wraps). This test is the primary regression guard for rotation correctness.
+- `endTurn` after `startGame` — first rotation goes to the other team's first player (verifies `startGame` seed): start a game, call `endTurn` once without calling `readyTurn`, assert `currentClueGiverId` equals the first player on the team that did NOT start
+- `endTurn` with a 1-player team: after rotation the same single player is always selected (index wraps back to 0)
+- `endTurn` when hat is empty (defensive guard): cast the game to `InternalGame` and set `hat = []` directly, then call `endTurn` — assert `status: 'round_over'` and `currentClueGiverId: undefined`. Document that this state is unreachable via the public API.
+- `readyTurn` success: `turnStartedAt` is set to a valid ISO string — assert `Date.parse(game.turnStartedAt!)` is not `NaN` and within 2 seconds of `Date.now()`: `expect(Math.abs(Date.now() - Date.parse(game.turnStartedAt!))).toBeLessThan(2000)`
 
 ### Changes Required
 
@@ -96,11 +100,13 @@ type InternalGame = Game & {
   hat: Word[]
   skippedThisTurn: string[]
   currentWordId?: string
-  clueGiverIndices: { 1: number; 2: number }   // next index to use per team
+  clueGiverIndices: Record<Team, number>   // next index to use per team; always points to the player who goes *after* the current one
 }
 ```
 
-Update `createGame` to initialise `clueGiverIndices: { 1: 0, 2: 0 }`.
+Update `createGame` to initialise `clueGiverIndices: { 1: 0, 2: 0 } as Record<Team, number>`.
+
+`Team` is already exported from `@wordfetti/shared` — import it in the store file alongside `Word`.
 
 #### 4. `startGame` — initialise indices and set first clue giver via index
 
@@ -116,9 +122,10 @@ if (!firstClueGiver) throw new AppError('INVALID_STATE', 'No players on the acti
 Object.assign(game, {
   ...existingFields,
   clueGiverIndices: {
-    1: activeTeam === 1 ? 1 % Math.max(activeTeamPlayers.length, 1) : 0,
-    2: activeTeam === 2 ? 1 % Math.max(activeTeamPlayers.length, 1) : 0,
-  },
+    1: activeTeam === 1 ? 1 % activeTeamPlayers.length : 0,
+    2: activeTeam === 2 ? 1 % activeTeamPlayers.length : 0,
+  } as Record<Team, number>,
+  // activeTeamPlayers.length is always ≥2 here (route validates this before calling startGame)
 })
 ```
 
@@ -149,14 +156,16 @@ Object.assign(game, {
 async endTurn(joinCode: string, playerId: string): Promise<Game> {
   const game = this.assertClueGiverTurn(joinCode, playerId)
   if (game.turnPhase !== 'active') throw new AppError('TURN_NOT_ACTIVE', 'Turn is not active')
+  if (!game.clueGiverIndices) throw new AppError('INVALID_STATE', 'clueGiverIndices not initialised')
 
-  // Current word stays in hat (never removed during active turn); just clear active state
-  // Defensive check: if somehow hat is empty, end the round
+  // Current word stays in hat (never removed during an active turn — only guessWord removes words).
+  // Defensive guard: this path is unreachable via the public API; guard anyway so a bug surfaces loudly.
   if (game.hat.length === 0) {
     Object.assign(game, {
       status: 'round_over',
       currentWord: undefined,
       currentWordId: undefined,
+      currentClueGiverId: undefined,
       turnPhase: undefined,
       turnStartedAt: undefined,
     })
@@ -164,6 +173,9 @@ async endTurn(joinCode: string, playerId: string): Promise<Game> {
     this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
     return snapshot
   }
+
+  // Guard optional fields before mutation
+  if (!game.activeTeam) throw new AppError('INVALID_STATE', 'Active team not set')
 
   // Rotate team
   const newTeam: 1 | 2 = game.activeTeam === 1 ? 2 : 1
@@ -173,7 +185,9 @@ async endTurn(joinCode: string, playerId: string): Promise<Game> {
   const nextIndex = game.clueGiverIndices[newTeam]
   const nextClueGiver = newTeamPlayers[nextIndex % newTeamPlayers.length]
 
-  // Advance the index for the new team (consumed when they press Ready)
+  // Pre-advance the index so the *next* endTurn for this team picks the correct successor.
+  // Convention: clueGiverIndices[team] always holds the index of the player who goes after
+  // the one just assigned — it is advanced here (at turn end), not at readyTurn.
   game.clueGiverIndices[newTeam] = (nextIndex + 1) % newTeamPlayers.length
 
   Object.assign(game, {
@@ -194,6 +208,8 @@ async endTurn(joinCode: string, playerId: string): Promise<Game> {
   return snapshot
 }
 ```
+
+**Note on `guessWord` round_over path**: `guessWord` also transitions to `round_over` when the hat empties. Add `currentClueGiverId: undefined` to its `Object.assign` block for consistency, and remove the stale comment in `GamePage.tsx` line 52 (the comment "ENG-012 will clear `currentClueGiverId` when the round ends" was written in anticipation of this plan — clear it in both paths during implementation).
 
 ### Success Criteria
 
@@ -223,7 +239,7 @@ In `games.test.ts`, add failing tests for `POST /:joinCode/end-turn`:
 - 403 when store throws `FORBIDDEN`
 - 422 when store throws `TURN_NOT_ACTIVE`
 - 422 when store throws `TURN_NOT_ALLOWED`
-- 200 with public game snapshot on success
+- 200 with public game snapshot on success; response body does not contain `clueGiverIndices` — the mock must **include** `clueGiverIndices` in its return value (follow the pattern of the existing `/ready` strip test that injects `hat`, `skippedThisTurn`, `currentWordId` into the mock return) so the stripping is actually exercised and not vacuously passing
 
 ### Changes Required
 
@@ -286,51 +302,63 @@ Add a countdown timer to `ClueGiverView` that auto-calls `/end-turn` at 0, and u
 
 **File:** `client/src/pages/GamePage.tsx`
 
-Add a `useEffect`-driven countdown when `turnPhase === 'active'` and `turnStartedAt` is set. Derive remaining seconds from wall-clock diff, refresh every second via `setInterval`, call `/end-turn` (fire-and-forget) when it hits 0.
-
-Key points:
-- Derive `secondsLeft = Math.max(0, 60 - Math.floor((Date.now() - Date.parse(game.turnStartedAt)) / 1000))`
-- Display the countdown in the active-turn view
-- At 0, call `/end-turn` once (use a ref flag to avoid duplicate calls if the interval fires multiple times)
+**Imports to add at the top of the file** (per project import organisation rule — add to existing import lines, not inline):
 
 ```tsx
+import { useEffect, useRef, useState } from 'react'   // add useRef
 import { TURN_DURATION_SECONDS } from '@wordfetti/shared'
+```
 
-// Inside ClueGiverView, before the return:
+Add a `useEffect`-driven countdown when `turnPhase === 'active'` and `turnStartedAt` is set. Derive remaining seconds from wall-clock diff, poll every 500ms via `setInterval`, call `/end-turn` when elapsed ≥ `TURN_DURATION_SECONDS`.
+
+Inside `ClueGiverView`, add these hooks before the return:
+
+```tsx
 const timerFiredRef = useRef(false)
+const [, setTick] = useState(0)          // forces re-render each 500ms tick so secondsLeft updates
+const [turnEnding, setTurnEnding] = useState(false)  // disables buttons while end-turn is in-flight
 
 useEffect(() => {
   if (game.turnPhase !== 'active' || !game.turnStartedAt) return
   timerFiredRef.current = false
+  setTurnEnding(false)
 
   const interval = setInterval(async () => {
+    setTick((t) => t + 1)  // force re-render so secondsLeft counts down each tick
+
     const elapsed = Math.floor((Date.now() - Date.parse(game.turnStartedAt!)) / 1000)
     if (elapsed >= TURN_DURATION_SECONDS && !timerFiredRef.current) {
       timerFiredRef.current = true
       clearInterval(interval)
-      await fetch(`/api/games/${joinCode}/end-turn`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerId }),
-      })
+      setTurnEnding(true)   // disable Guess/Skip immediately — prevents confusing FORBIDDEN errors
+      try {
+        await fetch(`/api/games/${joinCode}/end-turn`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId }),
+        })
+      } catch {
+        // If the request fails, the game stays in active state on the server.
+        // The SSE stream will keep the UI in sync if the server recovers.
+        setTurnEnding(false)
+      }
     }
   }, 500)  // poll at 500ms for snappier 0-crossing detection
 
   return () => clearInterval(interval)
 }, [game.turnPhase, game.turnStartedAt, joinCode, playerId])
-```
 
-Add a computed `secondsLeft` to render in the active-turn view:
-
-```tsx
+// secondsLeft is derived at render time; setTick above drives the re-renders that keep it current.
 const secondsLeft = game.turnStartedAt
   ? Math.max(0, TURN_DURATION_SECONDS - Math.floor((Date.now() - Date.parse(game.turnStartedAt)) / 1000))
   : TURN_DURATION_SECONDS
 ```
 
-Display it above the word (e.g., `<p className="text-sm text-gray-500">{secondsLeft}s</p>`).
+Display `secondsLeft` above the word: `<p className="text-sm text-gray-500">{secondsLeft}s</p>`
 
-Note: `secondsLeft` derived at render time will be stale between renders. Drive re-renders from the interval's state update. Add `const [, setTick] = useState(0)` and call `setTick((t) => t + 1)` inside the interval callback to force re-renders each tick.
+Pass `disabled={loading || turnEnding}` to all three buttons (Ready, Guessed!, Skip).
+
+**Note on `turnStartedAt` visibility**: `turnStartedAt` is intentionally on the public `Game` type — the client needs it to compute the countdown. Do NOT add it to the `toPublicGame` strip list.
 
 #### 2. Between-turns "ready" views
 
@@ -355,6 +383,13 @@ In `GamePage` (after `clueGiver` is resolved):
 )}
 {!isClueGiver && game.turnPhase === 'active' && !isGuesser && (
   <SpectatorView clueGiverName={clueGiver.name} team={clueGiver.team} game={game} />
+)}
+{!isClueGiver && game.turnPhase !== 'ready' && game.turnPhase !== 'active' && (
+  // Defensive fallback: turnPhase is undefined during transient states (e.g. race between
+  // endTurn and SSE delivery). Show a loading spinner rather than a blank screen.
+  <div className="flex min-h-screen items-center justify-center bg-brand-cream">
+    <p role="status" className="text-gray-400">Loading...</p>
+  </div>
 )}
 ```
 
@@ -395,16 +430,26 @@ function WaitingView({ clueGiverName }: { clueGiverName: string }) {
 
 ### Unit Tests (store layer)
 
-- `endTurn` success with 2 players per team: verify `activeTeam`, `currentClueGiverId`, `turnPhase: 'ready'`, `turnStartedAt: undefined`
-- `endTurn` index cycling: verify 3rd call on same team picks 3rd player, then wraps
-- `readyTurn` success: verify `turnStartedAt` is a valid ISO string
+- `endTurn` success with 2 players per team: verify `activeTeam`, `currentClueGiverId` (first player on the new team), `turnPhase: 'ready'`, `turnStartedAt: undefined`
+- `endTurn` broadcasts updated game to subscribers
+- `endTurn` rotation — deterministic 4-step sequence: assert exact `currentClueGiverId` at each step (team A p0 → team B p0 → team A p1 → team B p1 → team A p0)
+- After `startGame` (no `readyTurn`), calling `endTurn` once: `currentClueGiverId` is first player on the *other* team (verifies `startGame` seed)
+- `readyTurn` success: `turnStartedAt` is a valid ISO string where `Date.parse` returns a timestamp within 2 seconds of `Date.now()`
 - `endTurn` FORBIDDEN (non-clue-giver caller)
 - `endTurn` TURN_NOT_ACTIVE (not in active phase)
 
 ### Route Tests
 
 - 400/403/404/422 error mapping for `POST /end-turn`
-- 200 success with stripped public game (no `clueGiverIndices` in response)
+- 200 success with stripped public game (no `clueGiverIndices` in response) — mock must inject `clueGiverIndices` into the return value
+
+### Client Timer Tests
+
+The `useEffect` timer in `ClueGiverView` (ref guard, interval cleanup on unmount, `setTick` re-renders) is complex enough to warrant automated tests. Add Vitest + React Testing Library tests using `vi.useFakeTimers()` verifying:
+- Fetch is called exactly once after `TURN_DURATION_SECONDS * 1000` ms
+- Fetch is not called a second time if the interval fires again after expiry (ref guard)
+- Interval is cleaned up on unmount (no fetch after component is removed)
+- `secondsLeft` display updates each 500ms tick
 
 ### Manual Testing Steps
 

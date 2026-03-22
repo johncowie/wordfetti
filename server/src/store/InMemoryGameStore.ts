@@ -11,6 +11,7 @@ export type InternalGame = Game & {
   hat: Word[]
   skippedThisTurn: string[]  // word IDs skipped this turn
   currentWordId?: string     // ID of the word currently being described
+  clueGiverIndices: Record<Team, number>  // next index to use per team; advanced at endTurn, not readyTurn
 }
 
 export class InMemoryGameStore implements GameStore {
@@ -36,6 +37,7 @@ export class InMemoryGameStore implements GameStore {
       players: [],
       hat: [],
       skippedThisTurn: [],
+      clueGiverIndices: { 1: 0, 2: 0 },
     }
     this.games.set(joinCode, game)
     return { ...game, players: [...game.players] }
@@ -82,7 +84,8 @@ export class InMemoryGameStore implements GameStore {
     }
 
     const activeTeam: 1 | 2 = Math.random() < 0.5 ? 1 : 2
-    const firstClueGiver = game.players.find((p) => p.team === activeTeam)
+    const activeTeamPlayers = game.players.filter((p) => p.team === activeTeam)
+    const firstClueGiver = activeTeamPlayers[0]
     if (!firstClueGiver) throw new AppError('INVALID_STATE', 'No players on the active team')
 
     // Commit all mutations in a single step to avoid partial state on future errors
@@ -94,6 +97,12 @@ export class InMemoryGameStore implements GameStore {
       turnPhase: 'ready',
       scores: { team1: 0, team2: 0 },
       skippedThisTurn: [],
+      // Index for starting team advances past player[0] (already assigned); other team starts at 0.
+      // activeTeamPlayers.length is always ≥2 (route validates before calling startGame).
+      clueGiverIndices: {
+        1: activeTeam === 1 ? 1 % activeTeamPlayers.length : 0,
+        2: activeTeam === 2 ? 1 % activeTeamPlayers.length : 0,
+      } as Record<Team, number>,
     })
 
     const snapshot = { ...game, players: [...game.players] }
@@ -144,6 +153,7 @@ export class InMemoryGameStore implements GameStore {
       currentWordId: firstWord.id,
       skippedThisTurn: [],
       guessedThisTurn: [],
+      turnStartedAt: new Date().toISOString(),
     })
 
     const clueGiver = game.players.find((p) => p.id === playerId)
@@ -155,6 +165,61 @@ export class InMemoryGameStore implements GameStore {
       wordsRemainingInHat: game.hat.length,
       hat: game.hat.map((w) => w.text),
     })
+
+    const snapshot = { ...game, players: [...game.players] }
+    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
+    return snapshot
+  }
+
+  async endTurn(joinCode: string, playerId: string): Promise<Game> {
+    const game = this.assertClueGiverTurn(joinCode, playerId)
+    if (game.turnPhase !== 'active') throw new AppError('TURN_NOT_ACTIVE', 'Turn is not active')
+    if (!game.clueGiverIndices) throw new AppError('INVALID_STATE', 'clueGiverIndices not initialised')
+
+    // Current word stays in hat (never removed during an active turn — only guessWord removes words).
+    // Defensive guard: this path is unreachable via the public API; guard anyway so a bug surfaces loudly.
+    if (game.hat.length === 0) {
+      Object.assign(game, {
+        status: 'round_over',
+        currentWord: undefined,
+        currentWordId: undefined,
+        currentClueGiverId: undefined,
+        turnPhase: undefined,
+        turnStartedAt: undefined,
+      })
+      const snapshot = { ...game, players: [...game.players] }
+      this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
+      return snapshot
+    }
+
+    // Guard optional fields before mutation
+    if (!game.activeTeam) throw new AppError('INVALID_STATE', 'Active team not set')
+
+    // Rotate team
+    const newTeam: 1 | 2 = game.activeTeam === 1 ? 2 : 1
+    const newTeamPlayers = game.players.filter((p) => p.team === newTeam)
+    if (!newTeamPlayers.length) throw new AppError('INVALID_STATE', 'No players on the next team')
+
+    const nextIndex = game.clueGiverIndices[newTeam]
+    const nextClueGiver = newTeamPlayers[nextIndex % newTeamPlayers.length]
+
+    // Pre-advance the index so the *next* endTurn for this team picks the correct successor.
+    // Convention: clueGiverIndices[team] always holds the index of the player who goes after
+    // the one just assigned — it is advanced here (at turn end), not at readyTurn.
+    game.clueGiverIndices[newTeam] = (nextIndex + 1) % newTeamPlayers.length
+
+    Object.assign(game, {
+      activeTeam: newTeam,
+      currentClueGiverId: nextClueGiver.id,
+      turnPhase: 'ready',
+      currentWord: undefined,
+      currentWordId: undefined,
+      skippedThisTurn: [],
+      guessedThisTurn: [],
+      turnStartedAt: undefined,
+    })
+
+    logger.info('Turn ended', { joinCode, newActiveTeam: newTeam, nextClueGiver: nextClueGiver.name })
 
     const snapshot = { ...game, players: [...game.players] }
     this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
@@ -186,7 +251,9 @@ export class InMemoryGameStore implements GameStore {
         status: 'round_over',
         currentWord: undefined,
         currentWordId: undefined,
+        currentClueGiverId: undefined,
         turnPhase: undefined,
+        turnStartedAt: undefined,
       })
     } else {
       const next = this.drawNextWord(game.hat, null, game.skippedThisTurn)
