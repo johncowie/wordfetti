@@ -183,10 +183,10 @@ describe('POST /api/games/:joinCode/start', () => {
     joinCode: 'ABC123',
     status: 'lobby' as const,
     players: [
-      { id: hostId, name: 'Alice', team: 1 as const, wordCount: 0 },
-      { id: 'p2', name: 'Bob', team: 1 as const, wordCount: 0 },
-      { id: 'p3', name: 'Carol', team: 2 as const, wordCount: 0 },
-      { id: 'p4', name: 'Dave', team: 2 as const, wordCount: 0 },
+      { id: hostId, name: 'Alice', team: 1 as const, wordCount: 5 },
+      { id: 'p2', name: 'Bob', team: 1 as const, wordCount: 5 },
+      { id: 'p3', name: 'Carol', team: 2 as const, wordCount: 5 },
+      { id: 'p4', name: 'Dave', team: 2 as const, wordCount: 5 },
     ],
     hostId,
   }
@@ -226,6 +226,24 @@ describe('POST /api/games/:joinCode/start', () => {
       .post('/ABC123/start')
       .send({ playerId: hostId })
     expect(res.status).toBe(422)
+  })
+
+  it('returns 422 when not all players have submitted their words', async () => {
+    const pendingGame = {
+      ...baseGame,
+      players: [
+        { id: hostId, name: 'Alice', team: 1 as const, wordCount: 5 },
+        { id: 'p2',   name: 'Bob',   team: 1 as const, wordCount: 3 },
+        { id: 'p3',   name: 'Carol', team: 2 as const, wordCount: 5 },
+        { id: 'p4',   name: 'Dave',  team: 2 as const, wordCount: 5 },
+      ],
+    }
+    const store = mockStore({ getGameByJoinCode: async () => pendingGame })
+    const res = await request(buildApp(store))
+      .post('/ABC123/start')
+      .send({ playerId: hostId })
+    expect(res.status).toBe(422)
+    expect(res.body.error).toMatch(/submit their words/)
   })
 
   it('returns 200 with the updated game when valid', async () => {

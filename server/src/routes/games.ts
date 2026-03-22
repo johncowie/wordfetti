@@ -107,6 +107,11 @@ export function createGamesRouter(store: GameStore): Router {
         return res.status(422).json({ error: 'Both teams need at least 2 players to start' })
       }
 
+      const allWordsSubmitted = game.players.every((p) => p.wordCount >= WORDS_PER_PLAYER)
+      if (!allWordsSubmitted) {
+        return res.status(422).json({ error: 'All players must submit their words before the game can start' })
+      }
+
       const updated = await store.startGame(joinCode)
       res.json(updated)
     } catch (err) {

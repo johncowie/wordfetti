@@ -97,6 +97,8 @@ export function LobbyPage() {
   const team1 = game.players.filter((p) => p.team === 1)
   const team2 = game.players.filter((p) => p.team === 2)
   const needsMorePlayers = team1.length < 2 || team2.length < 2
+  const allWordsSubmitted = game.players.every((p) => p.wordCount >= WORDS_PER_PLAYER)
+  const pendingCount = game.players.filter((p) => p.wordCount < WORDS_PER_PLAYER).length
 
   return (
     <div className="flex min-h-screen flex-col items-center bg-brand-cream px-4 py-8">
@@ -166,7 +168,7 @@ export function LobbyPage() {
           <div className="mt-6 flex flex-col items-center gap-2">
             <button
               onClick={handleStartGame}
-              disabled={needsMorePlayers}
+              disabled={needsMorePlayers || !allWordsSubmitted}
               className="rounded-xl bg-brand-coral px-8 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
             >
               Start Game
@@ -174,6 +176,11 @@ export function LobbyPage() {
             {needsMorePlayers && (
               <p className="text-center text-sm text-gray-400">
                 Both teams need at least 2 players to start
+              </p>
+            )}
+            {!needsMorePlayers && !allWordsSubmitted && (
+              <p className="text-center text-sm text-gray-400">
+                Waiting for {pendingCount} {pendingCount === 1 ? 'player' : 'players'} to finish submitting words
               </p>
             )}
             {startError && (
