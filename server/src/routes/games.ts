@@ -165,6 +165,25 @@ export function createGamesRouter(store: GameStore): Router {
     }
   })
 
+  // DELETE /:joinCode/words/:wordId — remove a player's submitted word
+  router.delete('/:joinCode/words/:wordId', async (req, res, next) => {
+    const joinCode = req.params.joinCode.toUpperCase()
+    const { wordId } = req.params
+    const { playerId } = req.body
+    if (!playerId || typeof playerId !== 'string') {
+      return res.status(400).json({ error: 'playerId is required' })
+    }
+    try {
+      await store.deleteWord(joinCode, playerId, wordId)
+      return res.status(204).send()
+    } catch (err: unknown) {
+      if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: 'Player not in game' })
+      if (err instanceof AppError && err.code === 'GAME_NOT_IN_LOBBY') return res.status(422).json({ error: 'Words can only be deleted while game is in lobby' })
+      return next(err)
+    }
+  })
+
   // POST /:joinCode/players — join an existing game
   router.post('/:joinCode/players', async (req, res, next) => {
     try {

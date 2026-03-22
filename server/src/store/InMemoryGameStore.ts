@@ -105,4 +105,17 @@ export class InMemoryGameStore implements GameStore {
     if (!player) throw new AppError('FORBIDDEN', 'Player not in game')
     return [...(this.words.get(`${joinCode}:${playerId}`) ?? [])]
   }
+
+  async deleteWord(joinCode: string, playerId: string, wordId: string): Promise<void> {
+    const game = this.games.get(joinCode)
+    if (!game) throw new AppError('NOT_FOUND', 'Game not found')
+    if (game.status !== 'lobby') throw new AppError('GAME_NOT_IN_LOBBY', 'Words can only be deleted while game is in lobby')
+    const player = game.players.find((p) => p.id === playerId)
+    if (!player) throw new AppError('FORBIDDEN', 'Player not in game')
+    const key = `${joinCode}:${playerId}`
+    const playerWords = this.words.get(key) ?? []
+    const wordIndex = playerWords.findIndex((w) => w.id === wordId)
+    if (wordIndex === -1) throw new AppError('NOT_FOUND', 'Word not found')
+    this.words.set(key, playerWords.filter((w) => w.id !== wordId))
+  }
 }

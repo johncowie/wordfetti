@@ -54,6 +54,22 @@ export function WordEntryPage() {
     }
   }
 
+  async function handleDelete(wordId: string) {
+    if (!session) return
+    setError(null)
+    const res = await fetch(`/api/games/${joinCode}/words/${wordId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId: session.playerId }),
+    })
+    if (res.ok) {
+      setWords((prev) => prev.filter((w) => w.id !== wordId))
+    } else {
+      const body = await res.json().catch(() => ({}))
+      setError(body.error ?? 'Failed to delete word')
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-brand-cream">
@@ -132,10 +148,19 @@ export function WordEntryPage() {
             {words.map((word, i) => (
               <li
                 key={word.id}
-                className="flex items-center rounded-xl bg-white px-4 py-3 shadow-sm"
+                className="flex items-center justify-between rounded-xl bg-white px-4 py-3 shadow-sm"
               >
-                <span className="mr-3 text-sm font-semibold text-gray-400">{i + 1}</span>
-                <span className="flex-1 text-sm text-gray-900">{word.text}</span>
+                <div className="flex items-center">
+                  <span className="mr-3 text-sm font-semibold text-gray-400">{i + 1}</span>
+                  <span className="text-sm text-gray-900">{word.text}</span>
+                </div>
+                <button
+                  onClick={() => handleDelete(word.id)}
+                  className="text-gray-400 transition-colors hover:text-red-500"
+                  aria-label={`Delete ${word.text}`}
+                >
+                  ×
+                </button>
               </li>
             ))}
           </ol>

@@ -9,4 +9,5 @@ export interface GameStore {
   startGame(joinCode: string): Promise<Game>
   addWord(joinCode: string, playerId: string, text: string): Promise<Word>
   getWords(joinCode: string, playerId: string): Promise<Word[]>
+  deleteWord(joinCode: string, playerId: string, wordId: string): Promise<void>
 }

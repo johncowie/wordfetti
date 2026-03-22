@@ -188,6 +188,45 @@ describe('getWords', () => {
   })
 })
 
+describe('deleteWord', () => {
+  it('removes the word so subsequent getWords does not include it', async () => {
+    const store = new InMemoryGameStore()
+    const game = await store.createGame()
+    const player = await store.joinGame(game.joinCode, 'Alice', 1)
+    const word = await store.addWord(game.joinCode, player.id, 'banana')
+    await store.deleteWord(game.joinCode, player.id, word.id)
+    const words = await store.getWords(game.joinCode, player.id)
+    expect(words).toHaveLength(0)
+  })
+
+  it('throws NOT_FOUND when game does not exist', async () => {
+    const store = new InMemoryGameStore()
+    await expect(store.deleteWord('XXXXXX', 'p1', 'w1')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('throws GAME_NOT_IN_LOBBY when game is in_progress', async () => {
+    const store = new InMemoryGameStore()
+    const game = await store.createGame()
+    const player = await store.joinGame(game.joinCode, 'Alice', 1)
+    const word = await store.addWord(game.joinCode, player.id, 'banana')
+    await store.startGame(game.joinCode)
+    await expect(store.deleteWord(game.joinCode, player.id, word.id)).rejects.toMatchObject({ code: 'GAME_NOT_IN_LOBBY' })
+  })
+
+  it('throws FORBIDDEN when player not in game', async () => {
+    const store = new InMemoryGameStore()
+    const game = await store.createGame()
+    await expect(store.deleteWord(game.joinCode, 'unknown-player', 'w1')).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('throws NOT_FOUND when word id does not exist', async () => {
+    const store = new InMemoryGameStore()
+    const game = await store.createGame()
+    const player = await store.joinGame(game.joinCode, 'Alice', 1)
+    await expect(store.deleteWord(game.joinCode, player.id, 'nonexistent-id')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+})
+
 describe('subscribe', () => {
   it('calls the callback with the updated game when a player joins', async () => {
     const store = new InMemoryGameStore()

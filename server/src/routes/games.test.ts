@@ -20,6 +20,7 @@ const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
   startGame: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [] }),
   addWord: async () => ({ id: 'w1', text: 'banana' }),
   getWords: async () => [],
+  deleteWord: async () => undefined,
   ...overrides,
 })
 
@@ -373,6 +374,38 @@ describe('POST /api/games/:joinCode/words', () => {
   it('returns 422 when store throws GAME_NOT_IN_LOBBY', async () => {
     const store = mockStore({ addWord: async () => { throw new AppError('GAME_NOT_IN_LOBBY', 'Not in lobby') } })
     const res = await request(buildApp(store)).post('/ABC123/words').send({ playerId: 'p1', text: 'banana' })
+    expect(res.status).toBe(422)
+  })
+})
+
+describe('DELETE /api/games/:joinCode/words/:wordId', () => {
+  it('returns 204 on success', async () => {
+    const res = await request(buildApp(mockStore()))
+      .delete('/ABC123/words/w1')
+      .send({ playerId: 'p1' })
+    expect(res.status).toBe(204)
+  })
+
+  it('returns 400 when playerId is missing', async () => {
+    const res = await request(buildApp(mockStore())).delete('/ABC123/words/w1').send({})
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 403 when store throws FORBIDDEN', async () => {
+    const store = mockStore({ deleteWord: async () => { throw new AppError('FORBIDDEN', 'Player not in game') } })
+    const res = await request(buildApp(store)).delete('/ABC123/words/w1').send({ playerId: 'p1' })
+    expect(res.status).toBe(403)
+  })
+
+  it('returns 404 when store throws NOT_FOUND', async () => {
+    const store = mockStore({ deleteWord: async () => { throw new AppError('NOT_FOUND', 'Word not found') } })
+    const res = await request(buildApp(store)).delete('/ABC123/words/w1').send({ playerId: 'p1' })
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 422 when store throws GAME_NOT_IN_LOBBY', async () => {
+    const store = mockStore({ deleteWord: async () => { throw new AppError('GAME_NOT_IN_LOBBY', 'Not in lobby') } })
+    const res = await request(buildApp(store)).delete('/ABC123/words/w1').send({ playerId: 'p1' })
     expect(res.status).toBe(422)
   })
 })
