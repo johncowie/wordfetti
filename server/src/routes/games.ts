@@ -49,7 +49,8 @@ export function createGamesRouter(store: GameStore): Router {
     try {
       const game = await store.getGameByJoinCode(req.params.joinCode.toUpperCase())
       if (!game) return res.status(404).json({ error: 'Game not found' })
-      res.json(game)
+      const { hat: _hat, ...publicGame } = game
+      res.json(publicGame)
     } catch (err) {
       next(err)
     }
@@ -73,13 +74,15 @@ export function createGamesRouter(store: GameStore): Router {
       // Subscribe BEFORE fetching the snapshot so any player join that occurs
       // in the gap between the two store calls is not silently missed.
       const unsubscribe = store.subscribe(joinCode, (updatedGame) => {
-        res.write(`data: ${JSON.stringify(updatedGame)}\n\n`)
+        const { hat: _hat, ...publicGame } = updatedGame
+        res.write(`data: ${JSON.stringify(publicGame)}\n\n`)
       })
 
       // Fetch a fresh snapshot after subscribing; any concurrent join is now
       // either captured by the callback above or already in this snapshot.
       const snapshot = (await store.getGameByJoinCode(joinCode))!
-      res.write(`data: ${JSON.stringify(snapshot)}\n\n`)
+      const { hat: _hat, ...publicSnapshot } = snapshot
+      res.write(`data: ${JSON.stringify(publicSnapshot)}\n\n`)
 
       req.on('close', () => {
         unsubscribe()

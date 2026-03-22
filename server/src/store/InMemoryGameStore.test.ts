@@ -3,6 +3,36 @@ import { InMemoryGameStore } from './InMemoryGameStore.js'
 import { WORDS_PER_PLAYER } from '@wordfetti/shared'
 import type { Game } from '@wordfetti/shared'
 
+// Creates a game with 2 players per team, each having submitted WORDS_PER_PLAYER words.
+// Ready to call startGame on.
+async function setupReadyGame() {
+  const store = new InMemoryGameStore()
+  const { game, player: host } = await store.createGameWithHost('Alice', 1)
+  const p2 = await store.joinGame(game.joinCode, 'Bob', 1)
+  const p3 = await store.joinGame(game.joinCode, 'Carol', 2)
+  const p4 = await store.joinGame(game.joinCode, 'Dave', 2)
+
+  const wordSets: [string, string[]][] = [
+    [host.id, ['cat', 'dog', 'fish', 'bird', 'ant']],
+    [p2.id,   ['sun', 'moon', 'star', 'sky', 'rain']],
+    [p3.id,   ['red', 'blue', 'green', 'yellow', 'pink']],
+    [p4.id,   ['one', 'two', 'three', 'four', 'five']],
+  ]
+  for (const [playerId, words] of wordSets) {
+    for (const text of words) {
+      await store.addWord(game.joinCode, playerId, text)
+    }
+  }
+  return { store, joinCode: game.joinCode }
+}
+
+// Convenience wrapper that also calls startGame, for tests that need an in-progress game.
+async function setupStartedGame() {
+  const { store, joinCode } = await setupReadyGame()
+  const game = await store.startGame(joinCode)
+  return { store, joinCode, game }
+}
+
 describe('InMemoryGameStore', () => {
   it('creates a game with a 6-character join code using only valid characters', async () => {
     const store = new InMemoryGameStore()
@@ -63,10 +93,8 @@ describe('joinGame', () => {
   })
 
   it('throws GAME_IN_PROGRESS when the game has already started', async () => {
-    const store = new InMemoryGameStore()
-    const game = await store.createGame()
-    await store.startGame(game.joinCode)
-    await expect(store.joinGame(game.joinCode, 'Alice', 1)).rejects.toMatchObject({
+    const { store, joinCode } = await setupStartedGame()
+    await expect(store.joinGame(joinCode, 'Alice', 1)).rejects.toMatchObject({
       code: 'GAME_IN_PROGRESS',
     })
   })
@@ -93,19 +121,17 @@ describe('createGameWithHost', () => {
 
 describe('startGame', () => {
   it('transitions the game status to in_progress', async () => {
-    const store = new InMemoryGameStore()
-    const game = await store.createGame()
-    await store.startGame(game.joinCode)
-    const updated = await store.getGameByJoinCode(game.joinCode)
+    const { store, joinCode } = await setupReadyGame()
+    await store.startGame(joinCode)
+    const updated = await store.getGameByJoinCode(joinCode)
     expect(updated?.status).toBe('in_progress')
   })
 
   it('notifies subscribers with the updated game', async () => {
-    const store = new InMemoryGameStore()
-    const game = await store.createGame()
+    const { store, joinCode } = await setupReadyGame()
     const updates: Game[] = []
-    store.subscribe(game.joinCode, (g) => updates.push(g))
-    await store.startGame(game.joinCode)
+    store.subscribe(joinCode, (g) => updates.push(g))
+    await store.startGame(joinCode)
     expect(updates).toHaveLength(1)
     expect(updates[0].status).toBe('in_progress')
   })
@@ -113,6 +139,70 @@ describe('startGame', () => {
   it('throws NOT_FOUND for an unknown join code', async () => {
     const store = new InMemoryGameStore()
     await expect(store.startGame('XXXXXX')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('hat contains exactly all submitted words', async () => {
+    const { store, joinCode } = await setupReadyGame()
+    const game = await store.startGame(joinCode)
+    expect(game.hat).toHaveLength(20)
+    expect([...game.hat!].sort()).toEqual([
+      'ant', 'bird', 'blue', 'cat', 'dog', 'fish', 'five', 'four', 'green',
+      'moon', 'one', 'pink', 'rain', 'red', 'sky', 'star', 'sun', 'three', 'two', 'yellow',
+    ])
+  })
+
+  it('sets activeTeam to 1 or 2, and both values are reachable', async () => {
+    // Run enough iterations to confirm both teams can be chosen — the
+    // probability of the same team appearing 20 times in a row is < 1 in 10^6.
+    const seen = new Set<number>()
+    for (let i = 0; i < 20 && seen.size < 2; i++) {
+      const { store, joinCode } = await setupReadyGame()
+      const game = await store.startGame(joinCode)
+      seen.add(game.activeTeam!)
+    }
+    expect(seen).toContain(1)
+    expect(seen).toContain(2)
+  })
+
+  it('sets currentClueGiverId to the first player on activeTeam by join order', async () => {
+    const { store, joinCode } = await setupReadyGame()
+    const game = await store.startGame(joinCode)
+    const firstOnTeam = game.players.find((p) => p.team === game.activeTeam)!
+    expect(game.currentClueGiverId).toBe(firstOnTeam.id)
+  })
+
+  it('sets turnPhase to ready', async () => {
+    const { store, joinCode } = await setupReadyGame()
+    const game = await store.startGame(joinCode)
+    expect(game.turnPhase).toBe('ready')
+  })
+
+  it('initialises scores to zero', async () => {
+    const { store, joinCode } = await setupReadyGame()
+    const game = await store.startGame(joinCode)
+    expect(game.scores).toEqual({ team1: 0, team2: 0 })
+  })
+
+  it('throws INVALID_STATE when no players exist on the selected team', async () => {
+    // All players on team 1 — if Math.random picks team 2 the guard must fire.
+    // Run up to 20 times to hit team 2 selection with high confidence.
+    let threwInvalidState = false
+    for (let i = 0; i < 20; i++) {
+      const freshStore = new InMemoryGameStore()
+      const { game: g, player: h } = await freshStore.createGameWithHost('Alice', 1)
+      const q2 = await freshStore.joinGame(g.joinCode, 'Bob', 1)
+      for (const [pid, words] of [[h.id, ['a', 'b', 'c', 'd', 'e']], [q2.id, ['f', 'g', 'h', 'i', 'j']]] as [string, string[]][]) {
+        for (const text of words) await freshStore.addWord(g.joinCode, pid, text)
+      }
+      try {
+        await freshStore.startGame(g.joinCode)
+      } catch (err: unknown) {
+        expect((err as { code: string }).code).toBe('INVALID_STATE')
+        threwInvalidState = true
+        break
+      }
+    }
+    expect(threwInvalidState).toBe(true)
   })
 })
 
@@ -166,11 +256,9 @@ describe('addWord', () => {
   })
 
   it('throws GAME_NOT_IN_LOBBY when game is in_progress', async () => {
-    const store = new InMemoryGameStore()
-    const game = await store.createGame()
-    const player = await store.joinGame(game.joinCode, 'Alice', 1)
-    await store.startGame(game.joinCode)
-    await expect(store.addWord(game.joinCode, player.id, 'banana')).rejects.toMatchObject({
+    const { store, joinCode, game } = await setupStartedGame()
+    const player = game.players[0]
+    await expect(store.addWord(joinCode, player.id, 'banana')).rejects.toMatchObject({
       code: 'GAME_NOT_IN_LOBBY',
     })
   })
@@ -216,12 +304,12 @@ describe('deleteWord', () => {
   })
 
   it('throws GAME_NOT_IN_LOBBY when game is in_progress', async () => {
-    const store = new InMemoryGameStore()
-    const game = await store.createGame()
-    const player = await store.joinGame(game.joinCode, 'Alice', 1)
-    const word = await store.addWord(game.joinCode, player.id, 'banana')
-    await store.startGame(game.joinCode)
-    await expect(store.deleteWord(game.joinCode, player.id, word.id)).rejects.toMatchObject({ code: 'GAME_NOT_IN_LOBBY' })
+    const { store, joinCode, game } = await setupStartedGame()
+    const player = game.players[0]
+    // We need a word id — get it from the store's words. Since we can't get words after
+    // the game starts (that method works regardless of status), look up via getWords.
+    const words = await store.getWords(joinCode, player.id)
+    await expect(store.deleteWord(joinCode, player.id, words[0].id)).rejects.toMatchObject({ code: 'GAME_NOT_IN_LOBBY' })
   })
 
   it('throws FORBIDDEN when player not in game', async () => {

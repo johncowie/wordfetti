@@ -10,7 +10,7 @@ export function WordEntryPage() {
 
   useEffect(() => {
     if (!session || session.joinCode !== joinCode) {
-      navigate(`/game/${joinCode}`, { replace: true })
+      navigate(`/lobby/${joinCode}`, { replace: true })
     }
   }, [session, joinCode, navigate])
 
@@ -83,7 +83,7 @@ export function WordEntryPage() {
       {/* Header */}
       <div className="relative flex items-center px-4 pt-6 pb-4">
         <button
-          onClick={() => navigate(`/game/${joinCode}`)}
+          onClick={() => navigate(`/lobby/${joinCode}`)}
           className="absolute left-4 text-gray-500 hover:text-gray-700"
           aria-label="Back to lobby"
         >
@@ -170,7 +170,7 @@ export function WordEntryPage() {
       {/* Back to Lobby button */}
       <div className="p-4">
         <button
-          onClick={() => navigate(`/game/${joinCode}`)}
+          onClick={() => navigate(`/lobby/${joinCode}`)}
           className="w-full rounded-xl border border-gray-200 bg-white px-6 py-3.5 text-sm font-semibold text-gray-700 transition-opacity hover:opacity-90"
         >
           Back to Lobby ({words.length}/{WORDS_PER_PLAYER})

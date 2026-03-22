@@ -62,7 +62,30 @@ export class InMemoryGameStore implements GameStore {
   async startGame(joinCode: string): Promise<Game> {
     const game = this.games.get(joinCode)
     if (!game) throw new AppError('NOT_FOUND', 'Game not found')
-    game.status = 'in_progress'
+
+    const allWords = game.players.flatMap((p) =>
+      (this.words.get(`${joinCode}:${p.id}`) ?? []).map((w) => w.text),
+    )
+
+    for (let i = allWords.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[allWords[i], allWords[j]] = [allWords[j], allWords[i]]
+    }
+
+    const activeTeam: 1 | 2 = Math.random() < 0.5 ? 1 : 2
+    const firstClueGiver = game.players.find((p) => p.team === activeTeam)
+    if (!firstClueGiver) throw new AppError('INVALID_STATE', 'No players on the active team')
+
+    // Commit all mutations in a single step to avoid partial state on future errors
+    Object.assign(game, {
+      status: 'in_progress',
+      hat: allWords,
+      activeTeam,
+      currentClueGiverId: firstClueGiver.id,
+      turnPhase: 'ready',
+      scores: { team1: 0, team2: 0 },
+    })
+
     const snapshot = { ...game, players: [...game.players] }
     this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
     return snapshot

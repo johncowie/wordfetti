@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { WORDS_PER_PLAYER } from '@wordfetti/shared'
-import type { Game, Player } from '@wordfetti/shared'
+import type { Player } from '@wordfetti/shared'
 import { Logo } from '../components/Logo'
 import { loadSession } from '../session'
+import { useGameState } from '../hooks/useGameState'
 
 export function LobbyPage() {
   const { joinCode } = useParams<{ joinCode: string }>()
   const navigate = useNavigate()
-  const [game, setGame] = useState<Game | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
   // useState initialiser avoids calling loadSession on every render
@@ -17,43 +16,13 @@ export function LobbyPage() {
   const currentPlayerId =
     session !== null && session.joinCode === joinCode?.toUpperCase() ? session.playerId : null
 
-  useEffect(() => {
-    if (!joinCode) return
-    const controller = new AbortController()
-    fetch(`/api/games/${joinCode}`, { signal: controller.signal })
-      .then((res) => {
-        if (!res.ok) throw new Error(`${res.status}`)
-        return res.json() as Promise<Game>
-      })
-      .then(setGame)
-      .catch((err) => {
-        if (err.name === 'AbortError') return
-        setError('Could not load the game. Check the code and try again.')
-      })
-    return () => controller.abort()
-  }, [joinCode])
+  const { game, error } = useGameState(joinCode)
 
-  // The initial fetch effect (above) is the authority for error display (404 etc.)
-  // and provides the first render of game state. This effect opens the live SSE
-  // stream for real-time updates. The SSE endpoint also sends the current game
-  // state immediately on connect, so any staleness from the initial fetch is
-  // self-corrected without a separate round-trip.
   useEffect(() => {
-    if (!joinCode) return
-    const es = new EventSource(`/api/games/${joinCode}/events`)
-    es.onmessage = (event) => {
-      setGame(JSON.parse(event.data) as Game)
+    if (game?.status === 'in_progress') {
+      navigate(`/game/${joinCode}`)
     }
-    es.onerror = (event) => {
-      // Close the connection to stop EventSource's automatic retry loop.
-      // Without this, a 404 or server error causes the browser to hammer the
-      // /events endpoint repeatedly, exhausting the shared rate limiter.
-      // The initial fetch effect already shows the appropriate error state.
-      console.warn(`[lobby] SSE connection error for game ${joinCode}`, event)
-      es.close()
-    }
-    return () => es.close()
-  }, [joinCode])
+  }, [game?.status, joinCode, navigate])
 
   async function handleStartGame() {
     if (!joinCode || !session) return
@@ -155,7 +124,7 @@ export function LobbyPage() {
         {currentPlayerId && (
           <div className="mt-4">
             <button
-              onClick={() => navigate(`/game/${joinCode}/words`)}
+              onClick={() => navigate(`/lobby/${joinCode}/words`)}
               className="w-full rounded-xl bg-brand-teal px-6 py-3.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
             >
               Add Words

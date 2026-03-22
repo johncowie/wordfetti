@@ -20,4 +20,9 @@ export type Game = {
   status: 'lobby' | 'in_progress' | 'finished'
   players: Player[]
   hostId?: string
+  hat?: string[]
+  activeTeam?: 1 | 2
+  currentClueGiverId?: string
+  turnPhase?: 'ready' | 'active'
+  scores?: { team1: number; team2: number }
 }

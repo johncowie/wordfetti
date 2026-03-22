@@ -42,7 +42,7 @@ export function JoinPage() {
       if (!res.ok) throw new Error(`Unexpected response: ${res.status}`)
       const { player } = await res.json()
       saveSession({ playerId: player.id, joinCode })
-      navigate(`/game/${joinCode}`)
+      navigate(`/lobby/${joinCode}`)
     } catch (err) {
       console.error('Failed to join game:', err)
       setError('Something went wrong. Please try again.')
