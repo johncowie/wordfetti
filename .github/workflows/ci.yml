@@ -10,10 +10,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - run: npm install -g pnpm
-      - run: pnpm install
-      - run: pnpm build
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Install pnpm
+        run: npm install -g pnpm
+      - name: Install dependencies
+        run: pnpm install
+      - name: Run shared build script
+        run: pnpm build
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -28,15 +32,19 @@ jobs:
     needs: [ build ]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - run: npm install -g pnpm
-      - run: pnpm install
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Install pnpm
+        run: npm install -g pnpm
+      - name: Install dependencies
+        run: pnpm install
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           name: build-artifacts
           path: .
-      - run: pnpm test
+      - name: Run shared test script
+        run: pnpm test
 
   deploy:
     needs: [ build, test ]
