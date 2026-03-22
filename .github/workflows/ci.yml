@@ -14,10 +14,32 @@ jobs:
       - run: npm install -g pnpm
       - run: pnpm install
       - run: pnpm build
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: |
+            shared/dist
+            server/dist
+            client/dist
+          if-no-files-found: error
+
+  test:
+    needs: [ build ]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: npm install -g pnpm
+      - run: pnpm install
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
       - run: pnpm test
 
   deploy:
-    needs: [ build ]
+    needs: [ build, test ]
     runs-on: self-hosted
     steps:
       - name: Deploy
