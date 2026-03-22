@@ -145,7 +145,7 @@ describe('startGame', () => {
     const { store, joinCode } = await setupReadyGame()
     const game = await store.startGame(joinCode)
     expect(game.hat).toHaveLength(20)
-    expect([...game.hat!].sort()).toEqual([
+    expect(game.hat!.map((w) => w.text).sort()).toEqual([
       'ant', 'bird', 'blue', 'cat', 'dog', 'fish', 'five', 'four', 'green',
       'moon', 'one', 'pink', 'rain', 'red', 'sky', 'star', 'sun', 'three', 'two', 'yellow',
     ])
@@ -367,5 +367,221 @@ describe('subscribe', () => {
     // First snapshot must still reflect only Alice
     expect(updates[0].players).toHaveLength(1)
     expect(updates[0].players[0].name).toBe('Alice')
+  })
+})
+
+// Builds a started game and calls readyTurn to put it in the 'active' turn phase.
+async function setupActiveGame() {
+  const { store, joinCode, game: started } = await setupStartedGame()
+  const clueGiverId = started.currentClueGiverId!
+  const game = await store.readyTurn(joinCode, clueGiverId)
+  return { store, joinCode, clueGiverId, game }
+}
+
+describe('readyTurn', () => {
+  it('sets turnPhase to active and currentWord to the first word in hat', async () => {
+    const { store, joinCode, game: started } = await setupStartedGame()
+    const clueGiverId = started.currentClueGiverId!
+    const game = await store.readyTurn(joinCode, clueGiverId)
+    expect(game.turnPhase).toBe('active')
+    expect(typeof game.currentWord).toBe('string')
+    expect(game.currentWord!.length).toBeGreaterThan(0)
+  })
+
+  it('resets guessedThisTurn to []', async () => {
+    const { store, joinCode, game: started } = await setupStartedGame()
+    const clueGiverId = started.currentClueGiverId!
+    const game = await store.readyTurn(joinCode, clueGiverId)
+    expect(game.guessedThisTurn).toEqual([])
+  })
+
+  it('broadcasts the updated game to subscribers', async () => {
+    const { store, joinCode, game: started } = await setupStartedGame()
+    const clueGiverId = started.currentClueGiverId!
+    const updates: Game[] = []
+    store.subscribe(joinCode, (g) => updates.push(g))
+    await store.readyTurn(joinCode, clueGiverId)
+    expect(updates).toHaveLength(1)
+    expect(updates[0].turnPhase).toBe('active')
+  })
+
+  it('throws FORBIDDEN when caller is not the clue giver', async () => {
+    const { store, joinCode, game: started } = await setupStartedGame()
+    const nonClueGiver = started.players.find((p) => p.id !== started.currentClueGiverId)!
+    await expect(store.readyTurn(joinCode, nonClueGiver.id)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('throws TURN_ALREADY_ACTIVE when turnPhase is already active', async () => {
+    const { store, joinCode, clueGiverId } = await setupActiveGame()
+    await expect(store.readyTurn(joinCode, clueGiverId)).rejects.toMatchObject({ code: 'TURN_ALREADY_ACTIVE' })
+  })
+
+  it('throws TURN_NOT_ALLOWED when game is not in_progress', async () => {
+    const { store, joinCode } = await setupReadyGame()
+    const game = await store.getGameByJoinCode(joinCode)
+    const playerId = game!.players[0].id
+    await expect(store.readyTurn(joinCode, playerId)).rejects.toMatchObject({ code: 'TURN_NOT_ALLOWED' })
+  })
+})
+
+describe('guessWord', () => {
+  it('removes only the guessed word by ID when two words share the same text', async () => {
+    // Build a minimal game with two identical-text words
+    const store = new InMemoryGameStore()
+    const { game, player: host } = await store.createGameWithHost('Alice', 1)
+    const p2 = await store.joinGame(game.joinCode, 'Bob', 2)
+    // Add 5 words each so startGame can proceed, but we need control over hat content.
+    // We submit identical text ('dup') for two players.
+    for (let i = 0; i < 5; i++) {
+      await store.addWord(game.joinCode, host.id, i === 0 ? 'dup' : `a${i}`)
+      await store.addWord(game.joinCode, p2.id, i === 0 ? 'dup' : `b${i}`)
+    }
+    const started = await store.startGame(game.joinCode)
+    const clueGiverId = started.currentClueGiverId!
+    await store.readyTurn(game.joinCode, clueGiverId)
+    const afterGuess = await store.guessWord(game.joinCode, clueGiverId)
+    // Hat had 10 words; after one guess it must have 9 (only one 'dup' removed)
+    expect(afterGuess.hat!).toHaveLength(9)
+  })
+
+  it('increments only the active team score, leaves other score unchanged', async () => {
+    const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
+    const team = active.players.find((p) => p.id === clueGiverId)!.team
+    const afterGuess = await store.guessWord(joinCode, clueGiverId)
+    if (team === 1) {
+      expect(afterGuess.scores).toEqual({ team1: 1, team2: 0 })
+    } else {
+      expect(afterGuess.scores).toEqual({ team1: 0, team2: 1 })
+    }
+  })
+
+  it('accumulates guessedThisTurn across consecutive guesses', async () => {
+    const { store, joinCode, clueGiverId } = await setupActiveGame()
+    const first = await store.guessWord(joinCode, clueGiverId)
+    const firstWord = first.guessedThisTurn![0]
+    expect(first.guessedThisTurn).toHaveLength(1)
+    const second = await store.guessWord(joinCode, clueGiverId)
+    expect(second.guessedThisTurn).toHaveLength(2)
+    expect(second.guessedThisTurn![0]).toBe(firstWord)
+  })
+
+  it('advances currentWord to the next word after a guess', async () => {
+    const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
+    const wordBefore = active.currentWord
+    const afterGuess = await store.guessWord(joinCode, clueGiverId)
+    expect(afterGuess.currentWord).not.toBe(wordBefore)
+  })
+
+  it('sets status to round_over and clears currentWord when hat empties', async () => {
+    const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
+    // Guess all 20 words
+    let current = active
+    while (current.status === 'in_progress') {
+      current = await store.guessWord(joinCode, clueGiverId)
+    }
+    expect(current.status).toBe('round_over')
+    expect(current.currentWord).toBeUndefined()
+    expect(current.turnPhase).toBeUndefined()
+  })
+
+  it('throws TURN_NOT_ALLOWED after status becomes round_over', async () => {
+    const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
+    let current = active
+    while (current.status === 'in_progress') {
+      current = await store.guessWord(joinCode, clueGiverId)
+    }
+    await expect(store.guessWord(joinCode, clueGiverId)).rejects.toMatchObject({ code: 'TURN_NOT_ALLOWED' })
+  })
+
+  it('broadcasts the updated game', async () => {
+    const { store, joinCode, clueGiverId } = await setupActiveGame()
+    const updates: Game[] = []
+    store.subscribe(joinCode, (g) => updates.push(g))
+    await store.guessWord(joinCode, clueGiverId)
+    expect(updates).toHaveLength(1)
+    expect(updates[0].guessedThisTurn).toHaveLength(1)
+  })
+
+  it('throws FORBIDDEN when caller is not the clue giver', async () => {
+    const { store, joinCode, clueGiverId, game } = await setupActiveGame()
+    const other = game.players.find((p) => p.id !== clueGiverId)!
+    await expect(store.guessWord(joinCode, other.id)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('throws TURN_NOT_ACTIVE when turnPhase is ready', async () => {
+    const { store, joinCode, game: started } = await setupStartedGame()
+    const clueGiverId = started.currentClueGiverId!
+    await expect(store.guessWord(joinCode, clueGiverId)).rejects.toMatchObject({ code: 'TURN_NOT_ACTIVE' })
+  })
+})
+
+describe('skipWord', () => {
+  it('advances to a non-skipped word; skipped word does not reappear while others remain', async () => {
+    const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
+    const skippedWord = active.currentWord
+    const afterSkip = await store.skipWord(joinCode, clueGiverId)
+    expect(afterSkip.currentWord).not.toBe(skippedWord)
+    // Skip several more times; the original skipped word must not reappear
+    let current = afterSkip
+    for (let i = 0; i < 5 && current.hat!.length > 2; i++) {
+      current = await store.skipWord(joinCode, clueGiverId)
+      expect(current.currentWord).not.toBe(skippedWord)
+    }
+  })
+
+  it('falls back to a previously-skipped word when all remaining words are skipped', async () => {
+    const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
+    // Skip all 20 words — after the first 19 skips it must fall back to a previously-skipped word
+    let current = active
+    const wordsSeen = new Set<string>()
+    for (let i = 0; i < active.hat!.length; i++) {
+      wordsSeen.add(current.currentWord!)
+      current = await store.skipWord(joinCode, clueGiverId)
+    }
+    // After skipping all, currentWord must be one of the skipped words (fallback)
+    expect(wordsSeen.has(current.currentWord!)).toBe(true)
+  })
+
+  it('when only one word remains and is skipped, currentWord stays and status stays in_progress', async () => {
+    const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
+    // Guess all but one word
+    let current = active
+    while (current.hat!.length > 1) {
+      current = await store.guessWord(joinCode, clueGiverId)
+    }
+    expect(current.hat).toHaveLength(1)
+    const lastWord = current.currentWord
+    const afterSkip = await store.skipWord(joinCode, clueGiverId)
+    expect(afterSkip.currentWord).toBe(lastWord)
+    expect(afterSkip.status).toBe('in_progress')
+  })
+
+  it('broadcasts the updated game', async () => {
+    const { store, joinCode, clueGiverId } = await setupActiveGame()
+    const updates: Game[] = []
+    store.subscribe(joinCode, (g) => updates.push(g))
+    await store.skipWord(joinCode, clueGiverId)
+    expect(updates).toHaveLength(1)
+  })
+
+  it('throws FORBIDDEN when caller is not the clue giver', async () => {
+    const { store, joinCode, clueGiverId, game } = await setupActiveGame()
+    const other = game.players.find((p) => p.id !== clueGiverId)!
+    await expect(store.skipWord(joinCode, other.id)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('throws TURN_NOT_ACTIVE when turnPhase is ready', async () => {
+    const { store, joinCode, game: started } = await setupStartedGame()
+    const clueGiverId = started.currentClueGiverId!
+    await expect(store.skipWord(joinCode, clueGiverId)).rejects.toMatchObject({ code: 'TURN_NOT_ACTIVE' })
+  })
+
+  it('throws TURN_NOT_ALLOWED after status becomes round_over', async () => {
+    const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
+    let current = active
+    while (current.status === 'in_progress') {
+      current = await store.guessWord(joinCode, clueGiverId)
+    }
+    await expect(store.skipWord(joinCode, clueGiverId)).rejects.toMatchObject({ code: 'TURN_NOT_ALLOWED' })
   })
 })

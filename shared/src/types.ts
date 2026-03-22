@@ -17,12 +17,14 @@ export type Player = {
 export type Game = {
   id: string
   joinCode: string
-  status: 'lobby' | 'in_progress' | 'finished'
+  status: 'lobby' | 'in_progress' | 'round_over' | 'finished'
   players: Player[]
   hostId?: string
-  hat?: string[]
+  hat?: Word[]
   activeTeam?: 1 | 2
   currentClueGiverId?: string
   turnPhase?: 'ready' | 'active'
   scores?: { team1: number; team2: number }
+  currentWord?: string
+  guessedThisTurn?: string[]
 }

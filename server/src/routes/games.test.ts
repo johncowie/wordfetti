@@ -18,6 +18,9 @@ const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
   joinGame: async () => ({ id: 'p1', name: 'Test', team: 1 as const, wordCount: 0 }),
   subscribe: () => () => {},
   startGame: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [] }),
+  readyTurn: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], turnPhase: 'active' as const, currentWord: 'cat' }),
+  guessWord: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], currentWord: 'dog' }),
+  skipWord: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], currentWord: 'fish' }),
   addWord: async () => ({ id: 'w1', text: 'banana' }),
   getWords: async () => [],
   deleteWord: async () => undefined,
@@ -424,6 +427,163 @@ describe('DELETE /api/games/:joinCode/words/:wordId', () => {
   it('returns 422 when store throws GAME_NOT_IN_LOBBY', async () => {
     const store = mockStore({ deleteWord: async () => { throw new AppError('GAME_NOT_IN_LOBBY', 'Not in lobby') } })
     const res = await request(buildApp(store)).delete('/ABC123/words/w1').send({ playerId: 'p1' })
+    expect(res.status).toBe(422)
+  })
+})
+
+describe('POST /api/games/:joinCode/ready', () => {
+  it('returns 200 with updated game', async () => {
+    const res = await request(buildApp(mockStore()))
+      .post('/ABC123/ready')
+      .send({ playerId: 'p1' })
+    expect(res.status).toBe(200)
+    expect(res.body.turnPhase).toBe('active')
+    expect(res.body.currentWord).toBe('cat')
+  })
+
+  it('response body does not contain hat, skippedThisTurn, or currentWordId', async () => {
+    const store = mockStore({
+      readyTurn: async () => ({
+        id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [],
+        hat: [{ id: 'w1', text: 'cat' }], skippedThisTurn: [], currentWordId: 'w1',
+      } as Game & { hat: unknown; skippedThisTurn: unknown; currentWordId: unknown }),
+    })
+    const res = await request(buildApp(store)).post('/ABC123/ready').send({ playerId: 'p1' })
+    expect(res.body).not.toHaveProperty('hat')
+    expect(res.body).not.toHaveProperty('skippedThisTurn')
+    expect(res.body).not.toHaveProperty('currentWordId')
+  })
+
+  it('returns 400 when playerId is missing', async () => {
+    const res = await request(buildApp(mockStore())).post('/ABC123/ready').send({})
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 404 when store throws NOT_FOUND', async () => {
+    const store = mockStore({ readyTurn: async () => { throw new AppError('NOT_FOUND', 'Game not found') } })
+    const res = await request(buildApp(store)).post('/ABC123/ready').send({ playerId: 'p1' })
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 403 when store throws FORBIDDEN', async () => {
+    const store = mockStore({ readyTurn: async () => { throw new AppError('FORBIDDEN', 'Not clue giver') } })
+    const res = await request(buildApp(store)).post('/ABC123/ready').send({ playerId: 'p1' })
+    expect(res.status).toBe(403)
+  })
+
+  it('returns 422 when store throws TURN_ALREADY_ACTIVE', async () => {
+    const store = mockStore({ readyTurn: async () => { throw new AppError('TURN_ALREADY_ACTIVE', 'Already active') } })
+    const res = await request(buildApp(store)).post('/ABC123/ready').send({ playerId: 'p1' })
+    expect(res.status).toBe(422)
+  })
+
+  it('returns 422 when store throws TURN_NOT_ALLOWED', async () => {
+    const store = mockStore({ readyTurn: async () => { throw new AppError('TURN_NOT_ALLOWED', 'Not in progress') } })
+    const res = await request(buildApp(store)).post('/ABC123/ready').send({ playerId: 'p1' })
+    expect(res.status).toBe(422)
+  })
+})
+
+describe('POST /api/games/:joinCode/guess', () => {
+  it('returns 200 with updated game', async () => {
+    const res = await request(buildApp(mockStore()))
+      .post('/ABC123/guess')
+      .send({ playerId: 'p1' })
+    expect(res.status).toBe(200)
+    expect(res.body.currentWord).toBe('dog')
+  })
+
+  it('response body does not contain hat, skippedThisTurn, or currentWordId', async () => {
+    const store = mockStore({
+      guessWord: async () => ({
+        id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [],
+        hat: [{ id: 'w2', text: 'dog' }], skippedThisTurn: [], currentWordId: 'w2',
+      } as Game & { hat: unknown; skippedThisTurn: unknown; currentWordId: unknown }),
+    })
+    const res = await request(buildApp(store)).post('/ABC123/guess').send({ playerId: 'p1' })
+    expect(res.body).not.toHaveProperty('hat')
+    expect(res.body).not.toHaveProperty('skippedThisTurn')
+    expect(res.body).not.toHaveProperty('currentWordId')
+  })
+
+  it('returns 400 when playerId is missing', async () => {
+    const res = await request(buildApp(mockStore())).post('/ABC123/guess').send({})
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 404 when store throws NOT_FOUND', async () => {
+    const store = mockStore({ guessWord: async () => { throw new AppError('NOT_FOUND', 'Game not found') } })
+    const res = await request(buildApp(store)).post('/ABC123/guess').send({ playerId: 'p1' })
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 403 when store throws FORBIDDEN', async () => {
+    const store = mockStore({ guessWord: async () => { throw new AppError('FORBIDDEN', 'Not clue giver') } })
+    const res = await request(buildApp(store)).post('/ABC123/guess').send({ playerId: 'p1' })
+    expect(res.status).toBe(403)
+  })
+
+  it('returns 422 when store throws TURN_NOT_ACTIVE', async () => {
+    const store = mockStore({ guessWord: async () => { throw new AppError('TURN_NOT_ACTIVE', 'Not active') } })
+    const res = await request(buildApp(store)).post('/ABC123/guess').send({ playerId: 'p1' })
+    expect(res.status).toBe(422)
+  })
+
+  it('returns 422 when store throws TURN_NOT_ALLOWED', async () => {
+    const store = mockStore({ guessWord: async () => { throw new AppError('TURN_NOT_ALLOWED', 'Not in progress') } })
+    const res = await request(buildApp(store)).post('/ABC123/guess').send({ playerId: 'p1' })
+    expect(res.status).toBe(422)
+  })
+})
+
+describe('POST /api/games/:joinCode/skip', () => {
+  it('returns 200 with updated game', async () => {
+    const res = await request(buildApp(mockStore()))
+      .post('/ABC123/skip')
+      .send({ playerId: 'p1' })
+    expect(res.status).toBe(200)
+    expect(res.body.currentWord).toBe('fish')
+  })
+
+  it('response body does not contain hat, skippedThisTurn, or currentWordId', async () => {
+    const store = mockStore({
+      skipWord: async () => ({
+        id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [],
+        hat: [{ id: 'w3', text: 'fish' }], skippedThisTurn: ['w1'], currentWordId: 'w3',
+      } as Game & { hat: unknown; skippedThisTurn: unknown; currentWordId: unknown }),
+    })
+    const res = await request(buildApp(store)).post('/ABC123/skip').send({ playerId: 'p1' })
+    expect(res.body).not.toHaveProperty('hat')
+    expect(res.body).not.toHaveProperty('skippedThisTurn')
+    expect(res.body).not.toHaveProperty('currentWordId')
+  })
+
+  it('returns 400 when playerId is missing', async () => {
+    const res = await request(buildApp(mockStore())).post('/ABC123/skip').send({})
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 404 when store throws NOT_FOUND', async () => {
+    const store = mockStore({ skipWord: async () => { throw new AppError('NOT_FOUND', 'Game not found') } })
+    const res = await request(buildApp(store)).post('/ABC123/skip').send({ playerId: 'p1' })
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 403 when store throws FORBIDDEN', async () => {
+    const store = mockStore({ skipWord: async () => { throw new AppError('FORBIDDEN', 'Not clue giver') } })
+    const res = await request(buildApp(store)).post('/ABC123/skip').send({ playerId: 'p1' })
+    expect(res.status).toBe(403)
+  })
+
+  it('returns 422 when store throws TURN_NOT_ACTIVE', async () => {
+    const store = mockStore({ skipWord: async () => { throw new AppError('TURN_NOT_ACTIVE', 'Not active') } })
+    const res = await request(buildApp(store)).post('/ABC123/skip').send({ playerId: 'p1' })
+    expect(res.status).toBe(422)
+  })
+
+  it('returns 422 when store throws TURN_NOT_ALLOWED', async () => {
+    const store = mockStore({ skipWord: async () => { throw new AppError('TURN_NOT_ALLOWED', 'Not in progress') } })
+    const res = await request(buildApp(store)).post('/ABC123/skip').send({ playerId: 'p1' })
     expect(res.status).toBe(422)
   })
 })

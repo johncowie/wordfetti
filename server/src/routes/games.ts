@@ -1,7 +1,13 @@
 import { Router } from 'express'
+import type { Game } from '@wordfetti/shared'
 import type { GameStore } from '../store/GameStore.js'
 import { WORDS_PER_PLAYER, type Team } from '@wordfetti/shared'
 import { AppError } from '../errors.js'
+
+function toPublicGame(game: Game & { hat?: unknown; skippedThisTurn?: unknown; currentWordId?: unknown }) {
+  const { hat: _hat, skippedThisTurn: _skipped, currentWordId: _id, ...publicGame } = game
+  return publicGame
+}
 
 function isValidTeam(value: unknown): value is Team {
   return value === 1 || value === 2
@@ -49,8 +55,7 @@ export function createGamesRouter(store: GameStore): Router {
     try {
       const game = await store.getGameByJoinCode(req.params.joinCode.toUpperCase())
       if (!game) return res.status(404).json({ error: 'Game not found' })
-      const { hat: _hat, ...publicGame } = game
-      res.json(publicGame)
+      res.json(toPublicGame(game))
     } catch (err) {
       next(err)
     }
@@ -74,15 +79,13 @@ export function createGamesRouter(store: GameStore): Router {
       // Subscribe BEFORE fetching the snapshot so any player join that occurs
       // in the gap between the two store calls is not silently missed.
       const unsubscribe = store.subscribe(joinCode, (updatedGame) => {
-        const { hat: _hat, ...publicGame } = updatedGame
-        res.write(`data: ${JSON.stringify(publicGame)}\n\n`)
+        res.write(`data: ${JSON.stringify(toPublicGame(updatedGame))}\n\n`)
       })
 
       // Fetch a fresh snapshot after subscribing; any concurrent join is now
       // either captured by the callback above or already in this snapshot.
       const snapshot = (await store.getGameByJoinCode(joinCode))!
-      const { hat: _hat, ...publicSnapshot } = snapshot
-      res.write(`data: ${JSON.stringify(publicSnapshot)}\n\n`)
+      res.write(`data: ${JSON.stringify(toPublicGame(snapshot))}\n\n`)
 
       req.on('close', () => {
         unsubscribe()
@@ -116,7 +119,7 @@ export function createGamesRouter(store: GameStore): Router {
       }
 
       const updated = await store.startGame(joinCode)
-      res.json(updated)
+      res.json(toPublicGame(updated))
     } catch (err) {
       next(err)
     }
@@ -189,6 +192,63 @@ export function createGamesRouter(store: GameStore): Router {
       if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: 'Player not in game' })
       if (err instanceof AppError && err.code === 'GAME_NOT_IN_LOBBY') return res.status(422).json({ error: 'Words can only be deleted while game is in lobby' })
       return next(err)
+    }
+  })
+
+  // POST /:joinCode/ready — clue giver starts their turn
+  router.post('/:joinCode/ready', async (req, res, next) => {
+    try {
+      const joinCode = req.params.joinCode.toUpperCase()
+      const { playerId } = req.body ?? {}
+      if (typeof playerId !== 'string' || !playerId) {
+        return res.status(400).json({ error: 'playerId is required' })
+      }
+      const updated = await store.readyTurn(joinCode, playerId)
+      return res.json(toPublicGame(updated))
+    } catch (err: unknown) {
+      if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'TURN_ALREADY_ACTIVE') return res.status(422).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'TURN_NOT_ALLOWED') return res.status(422).json({ error: err.message })
+      next(err)
+    }
+  })
+
+  // POST /:joinCode/guess — clue giver marks current word as guessed
+  router.post('/:joinCode/guess', async (req, res, next) => {
+    try {
+      const joinCode = req.params.joinCode.toUpperCase()
+      const { playerId } = req.body ?? {}
+      if (typeof playerId !== 'string' || !playerId) {
+        return res.status(400).json({ error: 'playerId is required' })
+      }
+      const updated = await store.guessWord(joinCode, playerId)
+      return res.json(toPublicGame(updated))
+    } catch (err: unknown) {
+      if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'TURN_NOT_ACTIVE') return res.status(422).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'TURN_NOT_ALLOWED') return res.status(422).json({ error: err.message })
+      next(err)
+    }
+  })
+
+  // POST /:joinCode/skip — clue giver skips current word
+  router.post('/:joinCode/skip', async (req, res, next) => {
+    try {
+      const joinCode = req.params.joinCode.toUpperCase()
+      const { playerId } = req.body ?? {}
+      if (typeof playerId !== 'string' || !playerId) {
+        return res.status(400).json({ error: 'playerId is required' })
+      }
+      const updated = await store.skipWord(joinCode, playerId)
+      return res.json(toPublicGame(updated))
+    } catch (err: unknown) {
+      if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'TURN_NOT_ACTIVE') return res.status(422).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'TURN_NOT_ALLOWED') return res.status(422).json({ error: err.message })
+      next(err)
     }
   })
 
