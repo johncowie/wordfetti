@@ -4,6 +4,7 @@ import type { GameStore } from '../store/GameStore.js'
 import { type Team } from '@wordfetti/shared'
 import type { GameConfig } from '../config.js'
 import { AppError } from '../errors.js'
+import { logger } from '../logger.js'
 
 function toPublicGame(game: Game & { hat?: unknown; skippedThisTurn?: unknown; currentWordId?: unknown; clueGiverIndices?: unknown }) {
   const { hat: _hat, skippedThisTurn: _skipped, currentWordId: _id, clueGiverIndices: _indices, ...publicGame } = game
@@ -39,11 +40,13 @@ export function createGamesRouter(store: GameStore, config: GameConfig): Router 
           return res.status(400).json({ error: 'Team must be 1 or 2' })
         }
         const { game, player } = await store.createGameWithHost(name.trim(), team)
+        logger.info('Game created', { joinCode: game.joinCode, hasHost: true })
         res.set('Location', `/api/games/${game.joinCode}`)
         return res.status(201).json({ joinCode: game.joinCode, player })
       }
       // No-body path (kept for backward compatibility with tests)
       const game = await store.createGame()
+      logger.info('Game created', { joinCode: game.joinCode, hasHost: false })
       res.set('Location', `/api/games/${game.joinCode}`)
       res.status(201).json({ joinCode: game.joinCode })
     } catch (err) {
@@ -77,6 +80,8 @@ export function createGamesRouter(store: GameStore, config: GameConfig): Router 
       res.setHeader('Connection', 'keep-alive')
       res.flushHeaders()
 
+      logger.info('SSE client connected', { joinCode })
+
       // Subscribe BEFORE fetching the snapshot so any player join that occurs
       // in the gap between the two store calls is not silently missed.
       const unsubscribe = store.subscribe(joinCode, (updatedGame) => {
@@ -90,6 +95,7 @@ export function createGamesRouter(store: GameStore, config: GameConfig): Router 
 
       req.on('close', () => {
         unsubscribe()
+        logger.info('SSE client disconnected', { joinCode })
       })
     } catch (err) {
       next(err)
@@ -120,6 +126,7 @@ export function createGamesRouter(store: GameStore, config: GameConfig): Router 
       }
 
       const updated = await store.startGame(joinCode)
+      logger.info('Game started', { joinCode, playerCount: game.players.length, totalWords: game.players.reduce((sum, p) => sum + p.wordCount, 0) })
       res.json(toPublicGame(updated))
     } catch (err) {
       next(err)
@@ -208,10 +215,14 @@ export function createGamesRouter(store: GameStore, config: GameConfig): Router 
       return res.json(toPublicGame(updated))
     } catch (err: unknown) {
       if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })
-      if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'FORBIDDEN') {
+        logger.warn('Forbidden action attempted', { route: 'ready', joinCode: req.params.joinCode.toUpperCase(), error: err.message })
+        return res.status(403).json({ error: err.message })
+      }
       if (err instanceof AppError && err.code === 'TURN_ALREADY_ACTIVE') return res.status(422).json({ error: err.message })
       if (err instanceof AppError && err.code === 'TURN_NOT_ALLOWED') return res.status(422).json({ error: err.message })
       if (err instanceof AppError && err.code === 'HAT_EMPTY') return res.status(422).json({ error: err.message })
+      logger.error('Unexpected error in route', { route: 'ready', error: err instanceof Error ? err.message : String(err) })
       next(err)
     }
   })
@@ -228,10 +239,17 @@ export function createGamesRouter(store: GameStore, config: GameConfig): Router 
       return res.json(toPublicGame(updated))
     } catch (err: unknown) {
       if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })
-      if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'FORBIDDEN') {
+        logger.warn('Forbidden action attempted', { route: 'guess', joinCode: req.params.joinCode.toUpperCase(), error: err.message })
+        return res.status(403).json({ error: err.message })
+      }
       if (err instanceof AppError && err.code === 'TURN_NOT_ACTIVE') return res.status(422).json({ error: err.message })
       if (err instanceof AppError && err.code === 'TURN_NOT_ALLOWED') return res.status(422).json({ error: err.message })
-      if (err instanceof AppError && err.code === 'INVALID_STATE') return res.status(500).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'INVALID_STATE') {
+        logger.warn('Invalid game state encountered', { route: 'guess', joinCode: req.params.joinCode.toUpperCase(), error: err.message })
+        return res.status(500).json({ error: err.message })
+      }
+      logger.error('Unexpected error in route', { route: 'guess', error: err instanceof Error ? err.message : String(err) })
       next(err)
     }
   })
@@ -248,10 +266,17 @@ export function createGamesRouter(store: GameStore, config: GameConfig): Router 
       return res.json(toPublicGame(updated))
     } catch (err: unknown) {
       if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })
-      if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'FORBIDDEN') {
+        logger.warn('Forbidden action attempted', { route: 'skip', joinCode: req.params.joinCode.toUpperCase(), error: err.message })
+        return res.status(403).json({ error: err.message })
+      }
       if (err instanceof AppError && err.code === 'TURN_NOT_ACTIVE') return res.status(422).json({ error: err.message })
       if (err instanceof AppError && err.code === 'TURN_NOT_ALLOWED') return res.status(422).json({ error: err.message })
-      if (err instanceof AppError && err.code === 'INVALID_STATE') return res.status(500).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'INVALID_STATE') {
+        logger.warn('Invalid game state encountered', { route: 'skip', joinCode: req.params.joinCode.toUpperCase(), error: err.message })
+        return res.status(500).json({ error: err.message })
+      }
+      logger.error('Unexpected error in route', { route: 'skip', error: err instanceof Error ? err.message : String(err) })
       next(err)
     }
   })
@@ -268,10 +293,17 @@ export function createGamesRouter(store: GameStore, config: GameConfig): Router 
       return res.json(toPublicGame(updated))
     } catch (err: unknown) {
       if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })
-      if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'FORBIDDEN') {
+        logger.warn('Forbidden action attempted', { route: 'end-turn', joinCode: req.params.joinCode.toUpperCase(), error: err.message })
+        return res.status(403).json({ error: err.message })
+      }
       if (err instanceof AppError && err.code === 'TURN_NOT_ACTIVE') return res.status(422).json({ error: err.message })
       if (err instanceof AppError && err.code === 'TURN_NOT_ALLOWED') return res.status(422).json({ error: err.message })
-      if (err instanceof AppError && err.code === 'INVALID_STATE') return res.status(500).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'INVALID_STATE') {
+        logger.warn('Invalid game state encountered', { route: 'end-turn', joinCode: req.params.joinCode.toUpperCase(), error: err.message })
+        return res.status(500).json({ error: err.message })
+      }
+      logger.error('Unexpected error in route', { route: 'end-turn', error: err instanceof Error ? err.message : String(err) })
       next(err)
     }
   })
@@ -288,6 +320,7 @@ export function createGamesRouter(store: GameStore, config: GameConfig): Router 
       }
       const joinCode = req.params.joinCode.toUpperCase()
       const player = await store.joinGame(joinCode, name.trim(), team)
+      logger.info('Player joined', { joinCode, name: name.trim(), team })
       res.status(201).json({ player })
     } catch (err: unknown) {
       if (err instanceof AppError && err.code === 'NOT_FOUND') {
