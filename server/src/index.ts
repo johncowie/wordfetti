@@ -24,7 +24,6 @@ app.use('/api/games', createGamesRouter(store, DEFAULT_GAME_CONFIG))
 
 app.get('/health', (_req, res) => res.sendStatus(200))
 
-let ipAddress = '0.0.0.0'
 if (process.env.NODE_ENV === 'production') {
   const dir = join(dirname(fileURLToPath(import.meta.url)), '../../public')
   app.use((req, _res, next) => {
@@ -35,10 +34,9 @@ if (process.env.NODE_ENV === 'production') {
   })
   app.use(express.static(dir))
   app.get('*', (_req, res) => res.sendFile(join(dir, 'index.html')))
-  ipAddress = '127.0.0.1'
 }
 
 const PORT = process.env.PORT ?? 3000
-app.listen(Number(PORT), ipAddress, () => {
+app.listen(Number(PORT), '0.0.0.0', () => {
   logger.info('Server listening', { port: Number(PORT), env: process.env.NODE_ENV })
 })
