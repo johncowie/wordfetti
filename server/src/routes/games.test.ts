@@ -556,17 +556,30 @@ describe('POST /api/games/:joinCode/guess', () => {
     expect(res.status).toBe(500)
   })
 
-  it('returns round_over status and scores when hat empties', async () => {
+  it('returns between_rounds status and scores when hat empties in round 1 or 2', async () => {
     const store = mockStore({
       guessWord: async () => ({
-        id: 'test-id', joinCode: 'ABC123', status: 'round_over' as const, players: [],
+        id: 'test-id', joinCode: 'ABC123', status: 'between_rounds' as const, players: [],
         scores: { team1: 3, team2: 2 },
       }),
     })
     const res = await request(buildApp(store)).post('/ABC123/guess').send({ playerId: 'p1' })
     expect(res.status).toBe(200)
-    expect(res.body.status).toBe('round_over')
+    expect(res.body.status).toBe('between_rounds')
     expect(res.body.scores).toEqual({ team1: 3, team2: 2 })
+  })
+
+  it('returns finished status and scores when hat empties in round 3', async () => {
+    const store = mockStore({
+      guessWord: async () => ({
+        id: 'test-id', joinCode: 'ABC123', status: 'finished' as const, players: [],
+        scores: { team1: 5, team2: 4 },
+      }),
+    })
+    const res = await request(buildApp(store)).post('/ABC123/guess').send({ playerId: 'p1' })
+    expect(res.status).toBe(200)
+    expect(res.body.status).toBe('finished')
+    expect(res.body.scores).toEqual({ team1: 5, team2: 4 })
   })
 })
 
@@ -685,16 +698,16 @@ describe('POST /api/games/:joinCode/end-turn', () => {
     expect(res.status).toBe(500)
   })
 
-  it('returns round_over status when the hat empties', async () => {
+  it('returns between_rounds status and scores when the hat empties', async () => {
     const store = mockStore({
       endTurn: async () => ({
-        id: 'test-id', joinCode: 'ABC123', status: 'round_over' as const, players: [],
+        id: 'test-id', joinCode: 'ABC123', status: 'between_rounds' as const, players: [],
         scores: { team1: 2, team2: 3 },
       }),
     })
     const res = await request(buildApp(store)).post('/ABC123/end-turn').send({ playerId: 'p1' })
     expect(res.status).toBe(200)
-    expect(res.body.status).toBe('round_over')
+    expect(res.body.status).toBe('between_rounds')
     expect(res.body.scores).toEqual({ team1: 2, team2: 3 })
   })
 })
@@ -763,6 +776,24 @@ describe('POST /api/games/:joinCode/advance-round', () => {
 
   it('returns 409 when store throws INVALID_STATE', async () => {
     const store = mockStore({ advanceRound: async () => { throw new AppError('INVALID_STATE', 'Game is not between rounds') } })
+    const res = await request(buildApp(store)).post('/ABC123/advance-round').send({ playerId: 'p1' })
+    expect(res.status).toBe(409)
+  })
+
+  it('returns 200 with round 3 in_progress when advancing from round 2 game', async () => {
+    const store = mockStore({
+      advanceRound: async () => ({
+        id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, round: 3 as const, players: [],
+      }),
+    })
+    const res = await request(buildApp(store)).post('/ABC123/advance-round').send({ playerId: 'p1' })
+    expect(res.status).toBe(200)
+    expect(res.body.round).toBe(3)
+    expect(res.body.status).toBe('in_progress')
+  })
+
+  it('returns 409 when advance-round is called on a round 3 game', async () => {
+    const store = mockStore({ advanceRound: async () => { throw new AppError('INVALID_STATE', 'Cannot advance beyond round 3') } })
     const res = await request(buildApp(store)).post('/ABC123/advance-round').send({ playerId: 'p1' })
     expect(res.status).toBe(409)
   })

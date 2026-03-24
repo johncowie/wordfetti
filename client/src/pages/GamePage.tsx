@@ -6,9 +6,10 @@ import { Logo } from '../components/Logo'
 import { loadSession } from '../session'
 import { useGameState } from '../hooks/useGameState'
 
-export function roundRuleText(round: 1 | 2): string {
+function roundRuleText(round: 1 | 2 | 3): string {
   if (round === 1) return 'Describe using anything — charades style!'
-  return 'One word only!'
+  if (round === 2) return 'One word only!'
+  return 'Mime — no words or sounds!'
 }
 
 export function GamePage() {
@@ -33,13 +34,19 @@ export function GamePage() {
   }, [currentPlayerId, joinCode, navigate])
 
   // Redirect to lobby if game has not started yet (e.g. direct URL hit before start).
-  // Condition is '=== lobby' (not '!== in_progress') so 'finished' does not redirect here.
   // Gated on currentPlayerId so it doesn't race with the no-session redirect above.
   useEffect(() => {
     if (game && game.status === 'lobby' && currentPlayerId) {
       navigate(`/lobby/${joinCode}`, { replace: true })
     }
   }, [game, joinCode, navigate, currentPlayerId])
+
+  // Navigate to results when game finishes; pass game state to avoid a second fetch.
+  useEffect(() => {
+    if (game && game.status === 'finished') {
+      navigate(`/game/${joinCode}/results`, { state: { game } })
+    }
+  }, [game, joinCode, navigate])
 
   // Detect between_rounds → in_progress transition to show round-start splash.
   useEffect(() => {
@@ -91,22 +98,6 @@ export function GamePage() {
     )
   }
 
-  // Round over check must come before the currentClueGiverId guard because
-  // endTurn and guessWord both clear currentClueGiverId when the round ends.
-  if (game.status === 'round_over') {
-    return (
-      <div className="flex min-h-screen flex-col items-center bg-brand-cream px-4 py-8">
-        <div className="w-full max-w-lg">
-          <Logo />
-          {game.scores
-            ? <RoundOverView scores={game.scores} />
-            : <p role="status" className="text-gray-400">Loading scores...</p>
-          }
-        </div>
-      </div>
-    )
-  }
-
   const clueGiver = game.players.find((p) => p.id === game.currentClueGiverId)
   if (!clueGiver) {
     // currentClueGiverId set but player not in list — transient state, show loading
@@ -126,7 +117,7 @@ export function GamePage() {
       <div className="w-full max-w-lg">
         <Logo />
         {showRoundSplash && game.round && (
-          <RoundSplashOverlay round={game.round as 1 | 2} onDismiss={() => setShowRoundSplash(false)} />
+          <RoundSplashOverlay round={game.round!} onDismiss={() => setShowRoundSplash(false)} />
         )}
         {isClueGiver && (
           <ClueGiverView game={game} joinCode={joinCode!} playerId={currentPlayerId!} />
@@ -227,7 +218,7 @@ function ClueGiverView({
         <p className="text-xl font-semibold text-gray-900">You are describing!</p>
         {game.round && (
           <p className="text-sm font-medium italic text-gray-500">
-            {roundRuleText(game.round as 1 | 2)}
+            {roundRuleText(game.round)}
           </p>
         )}
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
@@ -249,7 +240,7 @@ function ClueGiverView({
       <p className="text-4xl font-bold text-gray-900">{game.currentWord}</p>
       {game.round && (
         <p className="text-sm font-medium italic text-gray-500">
-          {roundRuleText(game.round as 1 | 2)}
+          {roundRuleText(game.round)}
         </p>
       )}
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
@@ -333,29 +324,17 @@ function SpectatorView({
   )
 }
 
-function RoundOverView({ scores }: { scores: { team1: number; team2: number } }) {
-  return (
-    <div className="mt-8 flex flex-col items-center gap-6 text-center">
-      <p className="text-2xl font-bold text-gray-900">Round Over!</p>
-      <div className="flex gap-8 text-xl font-semibold">
-        <div className="flex flex-col items-center gap-1">
-          <span className="text-sm font-medium uppercase tracking-wide text-gray-500">Team 1</span>
-          <span className="text-4xl text-brand-coral">{scores.team1}</span>
-        </div>
-        <div className="flex flex-col items-center gap-1">
-          <span className="text-sm font-medium uppercase tracking-wide text-gray-500">Team 2</span>
-          <span className="text-4xl text-brand-teal">{scores.team2}</span>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 function BetweenRoundsView({ round, isHost, joinCode, playerId }: {
-  round: 1 | 2; isHost: boolean; joinCode: string; playerId: string
+  round: 1 | 2 | 3; isHost: boolean; joinCode: string; playerId: string
 }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // round === 3 should never reach between_rounds (goes straight to finished),
+  // but guard against stale/malformed state
+  if (round === 3) {
+    return <p className="text-2xl font-bold text-gray-900">Game over!</p>
+  }
 
   async function handleAdvance() {
     setLoading(true)
@@ -398,7 +377,7 @@ function BetweenRoundsView({ round, isHost, joinCode, playerId }: {
   )
 }
 
-function RoundSplashOverlay({ round, onDismiss }: { round: 1 | 2; onDismiss: () => void }) {
+function RoundSplashOverlay({ round, onDismiss }: { round: 1 | 2 | 3; onDismiss: () => void }) {
   const overlayRef = useRef<HTMLDivElement>(null)
 
   // Move focus into the overlay on mount so keyboard users can dismiss it immediately.

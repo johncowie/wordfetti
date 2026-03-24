@@ -137,6 +137,14 @@ export class InMemoryGameStore implements GameStore {
     }
   }
 
+  private resolveRoundEndStatus(round: 1 | 2 | 3): Game['status'] {
+    switch (round) {
+      case 1: return 'between_rounds'
+      case 2: return 'between_rounds'
+      case 3: return 'finished'
+    }
+  }
+
   private assertClueGiverTurn(joinCode: string, playerId: string): InternalGame {
     const game = this.games.get(joinCode)
     if (!game) throw new AppError('NOT_FOUND', 'Game not found')
@@ -192,8 +200,7 @@ export class InMemoryGameStore implements GameStore {
     // Current word stays in hat (never removed during an active turn — only guessWord removes words).
     // Defensive guard: this path is unreachable via the public API; guard anyway so a bug surfaces loudly.
     if (game.hat.length === 0) {
-      // TODO(ENG-014): Same as guessWord — update when round 3 is added.
-      const newStatus = game.round === 1 ? 'between_rounds' : 'round_over'
+      const newStatus = this.resolveRoundEndStatus(game.round as 1 | 2 | 3)
       Object.assign(game, {
         status: newStatus,
         currentWord: undefined,
@@ -246,8 +253,7 @@ export class InMemoryGameStore implements GameStore {
     if (!game) throw new AppError('NOT_FOUND', 'Game not found')
     if (game.hostId !== playerId) throw new AppError('FORBIDDEN', 'Only the host can advance the round')
     if (game.status !== 'between_rounds') throw new AppError('INVALID_STATE', 'Game is not between rounds')
-    // TODO(ENG-014): Remove this guard and support advancing round 2 → 3.
-    if (game.round !== 1) throw new AppError('INVALID_STATE', 'Cannot advance beyond round 2')
+    if (game.round === 3) throw new AppError('INVALID_STATE', 'Cannot advance beyond round 3')
 
     // Use the shared shuffle helper — no inline duplication
     const shuffledHat = shuffle(game.originalWords)
@@ -258,7 +264,7 @@ export class InMemoryGameStore implements GameStore {
     const nextClueGiver = teamPlayers[game.clueGiverIndices[game.activeTeam!] % teamPlayers.length]
 
     Object.assign(game, {
-      round: 2,
+      round: (game.round === 1 ? 2 : 3) as 1 | 2 | 3,
       status: 'in_progress',
       hat: shuffledHat,
       turnPhase: 'ready',
@@ -293,9 +299,7 @@ export class InMemoryGameStore implements GameStore {
     game.guessedThisTurn = [...(game.guessedThisTurn ?? []), currentText]
 
     if (game.hat.length === 0) {
-      // TODO(ENG-014): When round 3 is added, update this ternary so round 2 also emits 'between_rounds'.
-      // Consider extracting resolveRoundEndStatus(round) to avoid updating two call sites.
-      const newStatus = game.round === 1 ? 'between_rounds' : 'round_over'
+      const newStatus = this.resolveRoundEndStatus(game.round as 1 | 2 | 3)
       logger.debug('Word guessed — hat empty, round over', {
         joinCode,
         guessedWord: currentText,

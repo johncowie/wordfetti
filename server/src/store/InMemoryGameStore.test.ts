@@ -494,18 +494,31 @@ describe('guessWord', () => {
     expect(current.turnPhase).toBeUndefined()
   })
 
-  it('transitions to round_over when hat empties and round is 2', async () => {
+  it('transitions to between_rounds when hat empties and round is 2', async () => {
     const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
-    // Force round to 2
     const internalGame = store['games'].get(joinCode) as InternalGame
     internalGame.round = 2
     let current = active
     while (current.status === 'in_progress') {
       current = await store.guessWord(joinCode, clueGiverId)
     }
-    expect(current.status).toBe('round_over')
+    expect(current.status).toBe('between_rounds')
     expect(current.currentWord).toBeUndefined()
     expect(current.turnPhase).toBeUndefined()
+  })
+
+  it('transitions to finished when hat empties and round is 3', async () => {
+    const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
+    const internalGame = store['games'].get(joinCode) as InternalGame
+    internalGame.round = 3
+    let current = active
+    while (current.status === 'in_progress') {
+      current = await store.guessWord(joinCode, clueGiverId)
+    }
+    expect(current.status).toBe('finished')
+    expect(current.currentWord).toBeUndefined()
+    expect(current.turnPhase).toBeUndefined()
+    expect(current.currentClueGiverId).toBeUndefined()
   })
 
   it('throws TURN_NOT_ALLOWED after status becomes between_rounds', async () => {
@@ -714,14 +727,14 @@ describe('endTurn', () => {
     expect(after.currentClueGiverId).toBeUndefined()
   })
 
-  it('transitions to round_over when hat is empty (defensive guard) and round is 2', async () => {
+  it('transitions to finished when hat is empty (defensive guard) and round is 3', async () => {
     const { store, joinCode, clueGiverId } = await setupActiveGame()
     const internalGame = store['games'].get(joinCode) as InternalGame
     internalGame.hat = []
-    internalGame.round = 2
+    internalGame.round = 3
 
     const after = await store.endTurn(joinCode, clueGiverId)
-    expect(after.status).toBe('round_over')
+    expect(after.status).toBe('finished')
     expect(after.currentClueGiverId).toBeUndefined()
   })
 })
@@ -760,11 +773,19 @@ describe('advanceRound', () => {
     await expect(store.advanceRound(joinCode, hostId)).rejects.toMatchObject({ code: 'INVALID_STATE' })
   })
 
-  it('throws INVALID_STATE when round is already 2 (no round 3 in ENG-013)', async () => {
+  it('sets round to 3 and status to in_progress when advancing from round 2', async () => {
     const { store, joinCode, hostId } = await setupBetweenRoundsGame()
-    // Force round to 2 and keep between_rounds status to simulate a stale call
     const internalGame = store['games'].get(joinCode) as InternalGame
     internalGame.round = 2
+    const after = await store.advanceRound(joinCode, hostId)
+    expect(after.round).toBe(3)
+    expect(after.status).toBe('in_progress')
+  })
+
+  it('throws INVALID_STATE when round is already 3', async () => {
+    const { store, joinCode, hostId } = await setupBetweenRoundsGame()
+    const internalGame = store['games'].get(joinCode) as InternalGame
+    internalGame.round = 3
     await expect(store.advanceRound(joinCode, hostId)).rejects.toMatchObject({ code: 'INVALID_STATE' })
   })
 
