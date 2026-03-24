@@ -10,9 +10,19 @@ const MAX_JOIN_CODE_ATTEMPTS = 10
 
 export type InternalGame = Game & {
   hat: Word[]
+  originalWords: Word[]          // full word list set at startGame; used to refill hat each round
   skippedThisTurn: string[]  // word IDs skipped this turn
   currentWordId?: string     // ID of the word currently being described
   clueGiverIndices: Record<Team, number>  // next index to use per team; advanced at endTurn, not readyTurn
+}
+
+function shuffle<T>(arr: T[]): T[] {
+  const result = [...arr]
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[result[i], result[j]] = [result[j], result[i]]
+  }
+  return result
 }
 
 export class InMemoryGameStore implements GameStore {
@@ -39,6 +49,7 @@ export class InMemoryGameStore implements GameStore {
       status: 'lobby',
       players: [],
       hat: [],
+      originalWords: [],
       skippedThisTurn: [],
       clueGiverIndices: { 1: 0, 2: 0 },
     }
@@ -81,10 +92,7 @@ export class InMemoryGameStore implements GameStore {
       this.words.get(`${joinCode}:${p.id}`) ?? []
     )
 
-    for (let i = allWords.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1))
-      ;[allWords[i], allWords[j]] = [allWords[j], allWords[i]]
-    }
+    const shuffledWords = shuffle(allWords)
 
     const activeTeam: 1 | 2 = Math.random() < 0.5 ? 1 : 2
     const activeTeamPlayers = game.players.filter((p) => p.team === activeTeam)
@@ -94,7 +102,9 @@ export class InMemoryGameStore implements GameStore {
     // Commit all mutations in a single step to avoid partial state on future errors
     Object.assign(game, {
       status: 'in_progress',
-      hat: allWords,
+      round: 1,
+      hat: shuffledWords,
+      originalWords: [...allWords],   // snapshot of the full word list (unshuffled) for hat refill each round
       activeTeam,
       currentClueGiverId: firstClueGiver.id,
       turnPhase: 'ready',
@@ -182,8 +192,10 @@ export class InMemoryGameStore implements GameStore {
     // Current word stays in hat (never removed during an active turn — only guessWord removes words).
     // Defensive guard: this path is unreachable via the public API; guard anyway so a bug surfaces loudly.
     if (game.hat.length === 0) {
+      // TODO(ENG-014): Same as guessWord — update when round 3 is added.
+      const newStatus = game.round === 1 ? 'between_rounds' : 'round_over'
       Object.assign(game, {
-        status: 'round_over',
+        status: newStatus,
         currentWord: undefined,
         currentWordId: undefined,
         currentClueGiverId: undefined,
@@ -229,6 +241,43 @@ export class InMemoryGameStore implements GameStore {
     return snapshot
   }
 
+  async advanceRound(joinCode: string, playerId: string): Promise<Game> {
+    const game = this.games.get(joinCode)
+    if (!game) throw new AppError('NOT_FOUND', 'Game not found')
+    if (game.hostId !== playerId) throw new AppError('FORBIDDEN', 'Only the host can advance the round')
+    if (game.status !== 'between_rounds') throw new AppError('INVALID_STATE', 'Game is not between rounds')
+    // TODO(ENG-014): Remove this guard and support advancing round 2 → 3.
+    if (game.round !== 1) throw new AppError('INVALID_STATE', 'Cannot advance beyond round 2')
+
+    // Use the shared shuffle helper — no inline duplication
+    const shuffledHat = shuffle(game.originalWords)
+
+    // Restore currentClueGiverId from preserved indices — guessWord cleared it when the hat emptied.
+    // clueGiverIndices and activeTeam are preserved so rotation continues from where round 1 left off.
+    const teamPlayers = game.players.filter((p) => p.team === game.activeTeam)
+    const nextClueGiver = teamPlayers[game.clueGiverIndices[game.activeTeam!] % teamPlayers.length]
+
+    Object.assign(game, {
+      round: 2,
+      status: 'in_progress',
+      hat: shuffledHat,
+      turnPhase: 'ready',
+      currentClueGiverId: nextClueGiver.id,
+      currentWord: undefined,
+      currentWordId: undefined,
+      turnStartedAt: undefined,
+      guessedThisTurn: [],     // clear stale data from round 1's last turn
+      skippedThisTurn: [],
+    })
+    // clueGiverIndices and activeTeam are unchanged — rotation picks up where round 1 left off
+
+    logger.info('Round advanced', { joinCode, round: game.round })
+
+    const snapshot = { ...game, players: [...game.players] }
+    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
+    return snapshot
+  }
+
   async guessWord(joinCode: string, playerId: string): Promise<Game> {
     const game = this.assertClueGiverTurn(joinCode, playerId)
     if (game.turnPhase !== 'active') throw new AppError('TURN_NOT_ACTIVE', 'Turn is not active')
@@ -244,6 +293,9 @@ export class InMemoryGameStore implements GameStore {
     game.guessedThisTurn = [...(game.guessedThisTurn ?? []), currentText]
 
     if (game.hat.length === 0) {
+      // TODO(ENG-014): When round 3 is added, update this ternary so round 2 also emits 'between_rounds'.
+      // Consider extracting resolveRoundEndStatus(round) to avoid updating two call sites.
+      const newStatus = game.round === 1 ? 'between_rounds' : 'round_over'
       logger.debug('Word guessed — hat empty, round over', {
         joinCode,
         guessedWord: currentText,
@@ -251,7 +303,7 @@ export class InMemoryGameStore implements GameStore {
         scores: game.scores,
       })
       Object.assign(game, {
-        status: 'round_over',
+        status: newStatus,
         currentWord: undefined,
         currentWordId: undefined,
         currentClueGiverId: undefined,

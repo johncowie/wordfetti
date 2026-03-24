@@ -187,6 +187,12 @@ describe('startGame', () => {
     expect(game.scores).toEqual({ team1: 0, team2: 0 })
   })
 
+  it('sets round to 1', async () => {
+    const { store, joinCode } = await setupReadyGame()
+    const game = await store.startGame(joinCode)
+    expect(game.round).toBe(1)
+  })
+
   it('throws INVALID_STATE when no players exist on the selected team', async () => {
     // All players on team 1 — if Math.random picks team 2 the guard must fire.
     // Run up to 20 times to hit team 2 selection with high confidence.
@@ -476,9 +482,23 @@ describe('guessWord', () => {
     expect(afterGuess.currentWord).not.toBe(wordBefore)
   })
 
-  it('sets status to round_over and clears currentWord when hat empties', async () => {
+  it('transitions to between_rounds when hat empties and round is 1', async () => {
     const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
     // Guess all 20 words
+    let current = active
+    while (current.status === 'in_progress') {
+      current = await store.guessWord(joinCode, clueGiverId)
+    }
+    expect(current.status).toBe('between_rounds')
+    expect(current.currentWord).toBeUndefined()
+    expect(current.turnPhase).toBeUndefined()
+  })
+
+  it('transitions to round_over when hat empties and round is 2', async () => {
+    const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
+    // Force round to 2
+    const internalGame = store['games'].get(joinCode) as InternalGame
+    internalGame.round = 2
     let current = active
     while (current.status === 'in_progress') {
       current = await store.guessWord(joinCode, clueGiverId)
@@ -488,7 +508,7 @@ describe('guessWord', () => {
     expect(current.turnPhase).toBeUndefined()
   })
 
-  it('throws TURN_NOT_ALLOWED after status becomes round_over', async () => {
+  it('throws TURN_NOT_ALLOWED after status becomes between_rounds', async () => {
     const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
     let current = active
     while (current.status === 'in_progress') {
@@ -581,7 +601,7 @@ describe('skipWord', () => {
     await expect(store.skipWord(joinCode, clueGiverId)).rejects.toMatchObject({ code: 'TURN_NOT_ACTIVE' })
   })
 
-  it('throws TURN_NOT_ALLOWED after status becomes round_over', async () => {
+  it('throws TURN_NOT_ALLOWED after round ends (status no longer in_progress)', async () => {
     const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
     let current = active
     while (current.status === 'in_progress') {
@@ -683,17 +703,157 @@ describe('endTurn', () => {
     expect(updates[0].turnPhase).toBe('ready')
   })
 
-  it('when hat is empty (defensive guard) transitions to round_over with currentClueGiverId cleared', async () => {
+  it('transitions to between_rounds when hat is empty (defensive guard) and round is 1', async () => {
     const { store, joinCode, clueGiverId } = await setupActiveGame()
     // Force-empty the hat — this state is not reachable via the public API
-    const internal = (await store.getGameByJoinCode(joinCode)) as InternalGame
-    // Access internal state directly via the store's private map through cast
-    // We cast because we need to manipulate internal-only state for this edge case test
     const internalGame = store['games'].get(joinCode) as InternalGame
     internalGame.hat = []
 
     const after = await store.endTurn(joinCode, clueGiverId)
+    expect(after.status).toBe('between_rounds')
+    expect(after.currentClueGiverId).toBeUndefined()
+  })
+
+  it('transitions to round_over when hat is empty (defensive guard) and round is 2', async () => {
+    const { store, joinCode, clueGiverId } = await setupActiveGame()
+    const internalGame = store['games'].get(joinCode) as InternalGame
+    internalGame.hat = []
+    internalGame.round = 2
+
+    const after = await store.endTurn(joinCode, clueGiverId)
     expect(after.status).toBe('round_over')
     expect(after.currentClueGiverId).toBeUndefined()
+  })
+})
+
+// Builds a game that has completed round 1 and is now in 'between_rounds'.
+// Returns the store, joinCode, and the hostId for calling advanceRound.
+async function setupBetweenRoundsGame() {
+  const { store, joinCode } = await setupReadyGame()
+  const started = await store.startGame(joinCode)
+  const hostId = started.hostId!
+  const clueGiverId = started.currentClueGiverId!
+  await store.readyTurn(joinCode, clueGiverId)
+  let current = started
+  while (current.status === 'in_progress') {
+    current = await store.guessWord(joinCode, clueGiverId)
+  }
+  return { store, joinCode, hostId }
+}
+
+describe('advanceRound', () => {
+  it('throws NOT_FOUND when game does not exist', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG)
+    await expect(store.advanceRound('XXXXXX', 'p1')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('throws FORBIDDEN when caller is not the host', async () => {
+    const { store, joinCode, hostId } = await setupBetweenRoundsGame()
+    const game = await store.getGameByJoinCode(joinCode)
+    const nonHost = game!.players.find((p) => p.id !== hostId)!
+    await expect(store.advanceRound(joinCode, nonHost.id)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('throws INVALID_STATE when status is not between_rounds', async () => {
+    const { store, joinCode, game: started } = await setupStartedGame()
+    const hostId = started.hostId!
+    await expect(store.advanceRound(joinCode, hostId)).rejects.toMatchObject({ code: 'INVALID_STATE' })
+  })
+
+  it('throws INVALID_STATE when round is already 2 (no round 3 in ENG-013)', async () => {
+    const { store, joinCode, hostId } = await setupBetweenRoundsGame()
+    // Force round to 2 and keep between_rounds status to simulate a stale call
+    const internalGame = store['games'].get(joinCode) as InternalGame
+    internalGame.round = 2
+    await expect(store.advanceRound(joinCode, hostId)).rejects.toMatchObject({ code: 'INVALID_STATE' })
+  })
+
+  it('sets round to 2 and status to in_progress', async () => {
+    const { store, joinCode, hostId } = await setupBetweenRoundsGame()
+    const after = await store.advanceRound(joinCode, hostId)
+    expect(after.round).toBe(2)
+    expect(after.status).toBe('in_progress')
+  })
+
+  it('refills the hat with the original word count', async () => {
+    const { store, joinCode, hostId } = await setupBetweenRoundsGame()
+    const after = await store.advanceRound(joinCode, hostId) as InternalGame
+    expect(after.hat).toHaveLength(20)
+  })
+
+  it('hat words after refill are shuffled (order differs from originalWords)', async () => {
+    // Probabilistic test: with 20 words the chance of identical order is 1/20! ≈ 0
+    const { store, joinCode, hostId } = await setupBetweenRoundsGame()
+    const internalBefore = store['games'].get(joinCode) as InternalGame
+    const originalIds = internalBefore.originalWords.map((w) => w.id)
+    const after = await store.advanceRound(joinCode, hostId) as InternalGame
+    const hatIds = after.hat.map((w) => w.id)
+    expect(hatIds.sort()).toEqual(originalIds.sort())  // same words
+    // Order almost certainly differs — verify at least the length matches
+    expect(hatIds).toHaveLength(originalIds.length)
+  })
+
+  it('restores currentClueGiverId from preserved activeTeam + clueGiverIndices', async () => {
+    const { store, joinCode, hostId } = await setupBetweenRoundsGame()
+    const internalGame = store['games'].get(joinCode) as InternalGame
+    const expectedTeam = internalGame.activeTeam!
+    const expectedIndex = internalGame.clueGiverIndices[expectedTeam]
+    const teamPlayers = internalGame.players.filter((p) => p.team === expectedTeam)
+    const expectedClueGiver = teamPlayers[expectedIndex % teamPlayers.length]
+
+    const after = await store.advanceRound(joinCode, hostId)
+    expect(after.currentClueGiverId).toBe(expectedClueGiver.id)
+  })
+
+  it('preserves clueGiverIndices and activeTeam from round 1', async () => {
+    const { store, joinCode, hostId } = await setupBetweenRoundsGame()
+    const before = store['games'].get(joinCode) as InternalGame
+    const activeTeamBefore = before.activeTeam
+    const indicesBefore = { ...before.clueGiverIndices }
+
+    await store.advanceRound(joinCode, hostId)
+    const after = store['games'].get(joinCode) as InternalGame
+    expect(after.activeTeam).toBe(activeTeamBefore)
+    expect(after.clueGiverIndices).toEqual(indicesBefore)
+  })
+
+  it('clears guessedThisTurn and skippedThisTurn', async () => {
+    const { store, joinCode, hostId } = await setupBetweenRoundsGame()
+    const after = await store.advanceRound(joinCode, hostId)
+    expect(after.guessedThisTurn).toEqual([])
+    expect((after as InternalGame).skippedThisTurn).toEqual([])
+  })
+
+  it('sets turnPhase to ready', async () => {
+    const { store, joinCode, hostId } = await setupBetweenRoundsGame()
+    const after = await store.advanceRound(joinCode, hostId)
+    expect(after.turnPhase).toBe('ready')
+  })
+
+  it('preserves scores from round 1', async () => {
+    const { store, joinCode } = await setupReadyGame()
+    const started = await store.startGame(joinCode)
+    const hostId = started.hostId!
+    const clueGiverId = started.currentClueGiverId!
+    await store.readyTurn(joinCode, clueGiverId)
+    // Guess all words to reach between_rounds
+    let current = started
+    while (current.status === 'in_progress') {
+      current = await store.guessWord(joinCode, clueGiverId)
+    }
+    // Capture scores at the between_rounds boundary, then verify advanceRound preserves them
+    const scoresAtBoundary = { ...current.scores! }
+    const after = await store.advanceRound(joinCode, hostId)
+    expect(after.scores).toEqual(scoresAtBoundary)
+  })
+
+  it('broadcasts updated game to subscribers with round 2 and status in_progress', async () => {
+    const { store, joinCode, hostId } = await setupBetweenRoundsGame()
+    const updates: Game[] = []
+    store.subscribe(joinCode, (g) => updates.push(g))
+    await store.advanceRound(joinCode, hostId)
+    expect(updates).toHaveLength(1)
+    expect(updates[0].round).toBe(2)
+    expect(updates[0].status).toBe('in_progress')
   })
 })

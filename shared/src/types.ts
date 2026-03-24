@@ -18,7 +18,8 @@ export type Player = {
 export type Game = {
   id: string
   joinCode: string
-  status: 'lobby' | 'in_progress' | 'round_over' | 'finished'
+  status: 'lobby' | 'in_progress' | 'round_over' | 'between_rounds' | 'finished'
+  round?: 1 | 2   // undefined before game starts; 1 after startGame; extended to 3 in ENG-014
   players: Player[]
   hostId?: string
   activeTeam?: 1 | 2

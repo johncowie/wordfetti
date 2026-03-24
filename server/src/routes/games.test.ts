@@ -25,6 +25,11 @@ const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
   guessWord: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], currentWord: 'dog' }),
   skipWord: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], currentWord: 'fish' }),
   endTurn: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], turnPhase: 'ready' as const }),
+  advanceRound: async () => ({
+    id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, round: 2,
+    players: [], turnPhase: 'ready' as const,
+    originalWords: [{ id: 'w1', text: 'apple' }],  // must be stripped by toPublicGame
+  } as any),
   addWord: async () => ({ id: 'w1', text: 'banana' }),
   getWords: async () => [],
   deleteWord: async () => undefined,
@@ -718,5 +723,47 @@ describe('GET /api/games/:joinCode/words', () => {
     const store = mockStore({ getWords: async () => { throw new AppError('NOT_FOUND', 'Game not found') } })
     const res = await request(buildApp(store)).get('/ABC123/words?playerId=p1')
     expect(res.status).toBe(404)
+  })
+})
+
+describe('POST /api/games/:joinCode/advance-round', () => {
+  it('returns 200 with updated game in_progress round 2', async () => {
+    const res = await request(buildApp(mockStore()))
+      .post('/ABC123/advance-round')
+      .send({ playerId: 'p1' })
+    expect(res.status).toBe(200)
+    expect(res.body.status).toBe('in_progress')
+    expect(res.body.round).toBe(2)
+  })
+
+  it('response body does not contain originalWords', async () => {
+    const res = await request(buildApp(mockStore()))
+      .post('/ABC123/advance-round')
+      .send({ playerId: 'p1' })
+    expect(res.status).toBe(200)
+    expect(res.body).not.toHaveProperty('originalWords')
+  })
+
+  it('returns 400 when playerId is missing', async () => {
+    const res = await request(buildApp(mockStore())).post('/ABC123/advance-round').send({})
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 404 when store throws NOT_FOUND', async () => {
+    const store = mockStore({ advanceRound: async () => { throw new AppError('NOT_FOUND', 'Game not found') } })
+    const res = await request(buildApp(store)).post('/ABC123/advance-round').send({ playerId: 'p1' })
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 403 when store throws FORBIDDEN', async () => {
+    const store = mockStore({ advanceRound: async () => { throw new AppError('FORBIDDEN', 'Only the host can advance the round') } })
+    const res = await request(buildApp(store)).post('/ABC123/advance-round').send({ playerId: 'p1' })
+    expect(res.status).toBe(403)
+  })
+
+  it('returns 409 when store throws INVALID_STATE', async () => {
+    const store = mockStore({ advanceRound: async () => { throw new AppError('INVALID_STATE', 'Game is not between rounds') } })
+    const res = await request(buildApp(store)).post('/ABC123/advance-round').send({ playerId: 'p1' })
+    expect(res.status).toBe(409)
   })
 })

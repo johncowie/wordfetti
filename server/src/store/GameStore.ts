@@ -9,6 +9,7 @@ export interface GameStore {
   startGame(joinCode: string): Promise<Game>
   readyTurn(joinCode: string, playerId: string): Promise<Game>
   endTurn(joinCode: string, playerId: string): Promise<Game>
+  advanceRound(joinCode: string, playerId: string): Promise<Game>
   guessWord(joinCode: string, playerId: string): Promise<Game>
   skipWord(joinCode: string, playerId: string): Promise<Game>
   addWord(joinCode: string, playerId: string, text: string): Promise<Word>

@@ -6,6 +6,11 @@ import { Logo } from '../components/Logo'
 import { loadSession } from '../session'
 import { useGameState } from '../hooks/useGameState'
 
+export function roundRuleText(round: 1 | 2): string {
+  if (round === 1) return 'Describe using anything — charades style!'
+  return 'One word only!'
+}
+
 export function GamePage() {
   const { joinCode } = useParams<{ joinCode: string }>()
   const navigate = useNavigate()
@@ -16,6 +21,9 @@ export function GamePage() {
     session !== null && session.joinCode === joinCode?.toUpperCase()
       ? session.playerId
       : null
+
+  const prevStatusRef = useRef<string | undefined>(undefined)
+  const [showRoundSplash, setShowRoundSplash] = useState(false)
 
   // Redirect if no session for this game
   useEffect(() => {
@@ -33,6 +41,21 @@ export function GamePage() {
     }
   }, [game, joinCode, navigate, currentPlayerId])
 
+  // Detect between_rounds → in_progress transition to show round-start splash.
+  useEffect(() => {
+    if (prevStatusRef.current === 'between_rounds' && game?.status === 'in_progress') {
+      setShowRoundSplash(true)
+      const timer = setTimeout(() => setShowRoundSplash(false), 2500)
+      // Update ref here too — must always reflect the latest status so future transitions are detected correctly.
+      // Without this, ref stays 'between_rounds' and could re-trigger the splash on any subsequent status change.
+      prevStatusRef.current = game.status
+      return () => clearTimeout(timer)
+    }
+    // Always update the ref, even when no transition fires, so it's ready for the next check.
+    // Guard against undefined (null game on SSE reconnect) to avoid losing the previous known status.
+    if (game?.status !== undefined) prevStatusRef.current = game.status
+  }, [game?.status])
+
   if (error) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-brand-cream">
@@ -45,6 +68,25 @@ export function GamePage() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-brand-cream">
         <p role="status" className="text-gray-400">Loading...</p>
+      </div>
+    )
+  }
+
+  // between_rounds check must come before the currentClueGiverId guard because
+  // guessWord clears currentClueGiverId when the hat empties.
+  if (game.status === 'between_rounds') {
+    const isHost = currentPlayerId === game.hostId
+    return (
+      <div className="flex min-h-screen flex-col items-center bg-brand-cream px-4 py-8">
+        <div className="w-full max-w-lg">
+          <Logo />
+          <BetweenRoundsView
+            round={game.round ?? 1}
+            isHost={isHost}
+            joinCode={joinCode!}
+            playerId={currentPlayerId!}
+          />
+        </div>
       </div>
     )
   }
@@ -83,6 +125,9 @@ export function GamePage() {
     <div className="flex min-h-screen flex-col items-center bg-brand-cream px-4 py-8">
       <div className="w-full max-w-lg">
         <Logo />
+        {showRoundSplash && game.round && (
+          <RoundSplashOverlay round={game.round as 1 | 2} onDismiss={() => setShowRoundSplash(false)} />
+        )}
         {isClueGiver && (
           <ClueGiverView game={game} joinCode={joinCode!} playerId={currentPlayerId!} />
         )}
@@ -180,6 +225,11 @@ function ClueGiverView({
     return (
       <div className="mt-8 flex flex-col items-center gap-6 text-center">
         <p className="text-xl font-semibold text-gray-900">You are describing!</p>
+        {game.round && (
+          <p className="text-sm font-medium italic text-gray-500">
+            {roundRuleText(game.round as 1 | 2)}
+          </p>
+        )}
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
         <button
           onClick={handleReady}
@@ -197,6 +247,11 @@ function ClueGiverView({
       <p className="text-sm text-gray-500">{secondsLeft}s</p>
       <p className="text-sm font-medium uppercase tracking-wide text-gray-500">Describe this word</p>
       <p className="text-4xl font-bold text-gray-900">{game.currentWord}</p>
+      {game.round && (
+        <p className="text-sm font-medium italic text-gray-500">
+          {roundRuleText(game.round as 1 | 2)}
+        </p>
+      )}
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
       <div className="flex gap-4">
         <button
@@ -291,6 +346,81 @@ function RoundOverView({ scores }: { scores: { team1: number; team2: number } })
           <span className="text-sm font-medium uppercase tracking-wide text-gray-500">Team 2</span>
           <span className="text-4xl text-brand-teal">{scores.team2}</span>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function BetweenRoundsView({ round, isHost, joinCode, playerId }: {
+  round: 1 | 2; isHost: boolean; joinCode: string; playerId: string
+}) {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleAdvance() {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/games/${joinCode}/advance-round`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setError((body as { error?: string }).error ?? 'Something went wrong')
+      }
+    } catch {
+      setError('Something went wrong — please try again')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="mt-8 flex flex-col items-center gap-6 text-center">
+      <p className="text-2xl font-bold text-gray-900">Round {round} is over!</p>
+      {isHost ? (
+        <>
+          {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+          <button
+            onClick={handleAdvance}
+            disabled={loading}
+            className="rounded-xl bg-brand-coral px-8 py-3 text-sm font-semibold text-white disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Start Round {round + 1}
+          </button>
+        </>
+      ) : (
+        <p className="text-gray-600">Waiting for the host to start Round {round + 1}...</p>
+      )}
+    </div>
+  )
+}
+
+function RoundSplashOverlay({ round, onDismiss }: { round: 1 | 2; onDismiss: () => void }) {
+  const overlayRef = useRef<HTMLDivElement>(null)
+
+  // Move focus into the overlay on mount so keyboard users can dismiss it immediately.
+  useEffect(() => {
+    overlayRef.current?.focus()
+  }, [])
+
+  return (
+    <div
+      ref={overlayRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Round ${round} starting`}
+      tabIndex={0}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-brand-coral cursor-pointer outline-none"
+      onClick={onDismiss}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onDismiss() }}
+    >
+      <div className="text-center text-white px-8">
+        <p className="text-4xl font-bold mb-4">Round {round}</p>
+        <p className="text-xl">{roundRuleText(round)}</p>
+        <p className="mt-8 text-sm opacity-70">Tap or press Enter to continue</p>
       </div>
     </div>
   )

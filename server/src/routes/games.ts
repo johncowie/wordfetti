@@ -6,8 +6,8 @@ import type { GameConfig } from '../config.js'
 import { AppError } from '../errors.js'
 import { logger } from '../logger.js'
 
-function toPublicGame(game: Game & { hat?: unknown; skippedThisTurn?: unknown; currentWordId?: unknown; clueGiverIndices?: unknown }) {
-  const { hat: _hat, skippedThisTurn: _skipped, currentWordId: _id, clueGiverIndices: _indices, ...publicGame } = game
+function toPublicGame(game: Game & { hat?: unknown; skippedThisTurn?: unknown; currentWordId?: unknown; clueGiverIndices?: unknown; originalWords?: unknown }) {
+  const { hat: _hat, skippedThisTurn: _skipped, currentWordId: _id, clueGiverIndices: _ci, originalWords: _ow, ...publicGame } = game
   return publicGame
 }
 
@@ -304,6 +304,31 @@ export function createGamesRouter(store: GameStore, config: GameConfig): Router 
         return res.status(500).json({ error: err.message })
       }
       logger.error('Unexpected error in route', { route: 'end-turn', error: err instanceof Error ? err.message : String(err) })
+      next(err)
+    }
+  })
+
+  // POST /:joinCode/advance-round — host advances from between_rounds to next round
+  router.post('/:joinCode/advance-round', async (req, res, next) => {
+    try {
+      const joinCode = req.params.joinCode.toUpperCase()
+      const { playerId } = req.body ?? {}
+      if (typeof playerId !== 'string' || !playerId) {
+        return res.status(400).json({ error: 'playerId is required' })
+      }
+      const updated = await store.advanceRound(joinCode, playerId)
+      return res.json(toPublicGame(updated))
+    } catch (err: unknown) {
+      if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'FORBIDDEN') {
+        logger.warn('Forbidden action attempted', { route: 'advance-round', joinCode: req.params.joinCode.toUpperCase(), error: err.message })
+        return res.status(403).json({ error: err.message })
+      }
+      if (err instanceof AppError && err.code === 'INVALID_STATE') {
+        // 409 Conflict: game exists but is in the wrong state for this operation (client timing error, not server fault)
+        return res.status(409).json({ error: err.message })
+      }
+      logger.error('Unexpected error in route', { route: 'advance-round', error: err instanceof Error ? err.message : String(err) })
       next(err)
     }
   })
