@@ -1,7 +1,7 @@
 export type Team = 1 | 2
 
-export const WORDS_PER_PLAYER = 2
-export const TURN_DURATION_SECONDS = 5
+export const WORDS_PER_PLAYER = 3
+export const TURN_DURATION_SECONDS = 45
 
 export type Word = {
   id: string
