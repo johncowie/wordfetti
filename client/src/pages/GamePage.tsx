@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import type { Game } from '@wordfetti/shared'
-import { TURN_DURATION_SECONDS } from '@wordfetti/shared'
 import { Logo } from '../components/Logo'
 import { loadSession } from '../session'
 import { useGameState } from '../hooks/useGameState'
@@ -165,7 +164,7 @@ function ClueGiverView({
       setTick((t) => t + 1)
 
       const elapsed = Math.floor((Date.now() - Date.parse(game.turnStartedAt!)) / 1000)
-      if (elapsed >= TURN_DURATION_SECONDS && !timerFiredRef.current) {
+      if (elapsed >= game.settings.turnDurationSeconds && !timerFiredRef.current) {
         timerFiredRef.current = true
         clearInterval(interval)
         setTurnEnding(true)
@@ -185,8 +184,8 @@ function ClueGiverView({
   }, [game.turnPhase, game.turnStartedAt, joinCode, playerId])
 
   const secondsLeft = game.turnStartedAt
-    ? Math.max(0, TURN_DURATION_SECONDS - Math.floor((Date.now() - Date.parse(game.turnStartedAt)) / 1000))
-    : TURN_DURATION_SECONDS
+    ? Math.max(0, game.settings.turnDurationSeconds - Math.floor((Date.now() - Date.parse(game.turnStartedAt)) / 1000))
+    : game.settings.turnDurationSeconds
 
   async function callGameAction(action: 'ready' | 'guess' | 'skip') {
     setLoading(true)

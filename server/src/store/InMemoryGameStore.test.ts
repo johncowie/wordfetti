@@ -1,13 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { InMemoryGameStore } from './InMemoryGameStore.js'
 import type { InternalGame } from './InMemoryGameStore.js'
-import { WORDS_PER_PLAYER } from '@wordfetti/shared'
 import type { Game } from '@wordfetti/shared'
 import type { GameConfig } from '../config.js'
 
-const TEST_CONFIG: GameConfig = { wordsPerPlayer: 5 }
+const TEST_CONFIG: GameConfig = { wordsPerPlayer: 5, turnDurationSeconds: 45 }
 
-// Creates a game with 2 players per team, each having submitted WORDS_PER_PLAYER words.
+// Creates a game with 2 players per team, each having submitted TEST_CONFIG.wordsPerPlayer words.
 // Ready to call startGame on.
 async function setupReadyGame() {
   const store = new InMemoryGameStore(TEST_CONFIG)
@@ -876,5 +875,63 @@ describe('advanceRound', () => {
     expect(updates).toHaveLength(1)
     expect(updates[0].round).toBe(2)
     expect(updates[0].status).toBe('in_progress')
+  })
+})
+
+describe('updateSettings', () => {
+  it('seeds settings from config at game creation', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG)
+    const { game } = await store.createGameWithHost('Alice', 1)
+    expect(game.settings.wordsPerPlayer).toBe(TEST_CONFIG.wordsPerPlayer)
+    expect(game.settings.turnDurationSeconds).toBe(TEST_CONFIG.turnDurationSeconds)
+  })
+
+  it('throws NOT_FOUND for an unknown joinCode', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG)
+    await expect(store.updateSettings('XXXXXX', 'p1', { wordsPerPlayer: 3 }))
+      .rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('throws INVALID_STATE when game is not in lobby', async () => {
+    const { store, joinCode, game } = await setupStartedGame()
+    await expect(store.updateSettings(joinCode, game.hostId!, { wordsPerPlayer: 3 }))
+      .rejects.toMatchObject({ code: 'INVALID_STATE' })
+  })
+
+  it('throws FORBIDDEN when caller is not the host', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG)
+    const { game } = await store.createGameWithHost('Alice', 1)
+    const nonHost = await store.joinGame(game.joinCode, 'Bob', 2)
+    await expect(store.updateSettings(game.joinCode, nonHost.id, { wordsPerPlayer: 3 }))
+      .rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('throws SETTINGS_CONFLICT when a player has more words than the new wordsPerPlayer', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG)
+    const { game, player: host } = await store.createGameWithHost('Alice', 1)
+    await store.addWord(game.joinCode, host.id, 'cat')
+    await store.addWord(game.joinCode, host.id, 'dog')
+    await store.addWord(game.joinCode, host.id, 'fish')
+    await expect(store.updateSettings(game.joinCode, host.id, { wordsPerPlayer: 2 }))
+      .rejects.toMatchObject({ code: 'SETTINGS_CONFLICT' })
+  })
+
+  it('updates wordsPerPlayer and notifies subscribers', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG)
+    const { game, player: host } = await store.createGameWithHost('Alice', 1)
+    const updates: Game[] = []
+    store.subscribe(game.joinCode, (g) => updates.push(g))
+    const result = await store.updateSettings(game.joinCode, host.id, { wordsPerPlayer: 10 })
+    expect(result.settings.wordsPerPlayer).toBe(10)
+    expect(updates).toHaveLength(1)
+    expect(updates[0].settings.wordsPerPlayer).toBe(10)
+  })
+
+  it('updates turnDurationSeconds independently', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG)
+    const { game, player: host } = await store.createGameWithHost('Alice', 1)
+    const result = await store.updateSettings(game.joinCode, host.id, { turnDurationSeconds: 120 })
+    expect(result.settings.turnDurationSeconds).toBe(120)
+    expect(result.settings.wordsPerPlayer).toBe(TEST_CONFIG.wordsPerPlayer)
   })
 })

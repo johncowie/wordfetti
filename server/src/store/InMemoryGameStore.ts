@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { type Game, type Player, type Team, type Word } from '@wordfetti/shared'
+import { type Game, type GameSettings, type Player, type Team, type Word } from '@wordfetti/shared'
 import type { GameStore } from './GameStore.js'
 import type { GameConfig } from '../config.js'
 import { generateJoinCode } from './joinCode.js'
@@ -48,6 +48,10 @@ export class InMemoryGameStore implements GameStore {
       joinCode,
       status: 'lobby',
       players: [],
+      settings: {
+        wordsPerPlayer: this.config.wordsPerPlayer,
+        turnDurationSeconds: this.config.turnDurationSeconds,
+      },
       hat: [],
       originalWords: [],
       skippedThisTurn: [],
@@ -372,8 +376,8 @@ export class InMemoryGameStore implements GameStore {
     if (!player) throw new AppError('FORBIDDEN', 'Player not in game')
     const key = `${joinCode}:${playerId}`
     const playerWords = this.words.get(key) ?? []
-    if (playerWords.length >= this.config.wordsPerPlayer) {
-      throw new AppError('WORD_LIMIT_REACHED', 'Word limit reached')
+    if (playerWords.length >= game.settings.wordsPerPlayer) {
+      throw new AppError('WORD_LIMIT_REACHED', `You can only submit ${game.settings.wordsPerPlayer} words`)
     }
     const word: Word = { id: randomUUID(), text: text.trim() }
     this.words.set(key, [...playerWords, word])
@@ -405,5 +409,27 @@ export class InMemoryGameStore implements GameStore {
     player.wordCount = playerWords.length - 1
     const snapshot = { ...game, players: [...game.players] }
     this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
+  }
+
+  async updateSettings(joinCode: string, playerId: string, patch: Partial<GameSettings>): Promise<Game> {
+    const game = this.games.get(joinCode)
+    if (!game) throw new AppError('NOT_FOUND', 'Game not found')
+    if (game.status !== 'lobby') throw new AppError('INVALID_STATE', 'Settings can only be changed while the game is in the lobby')
+    if (game.hostId !== playerId) throw new AppError('FORBIDDEN', 'Only the host can change game settings')
+
+    if (patch.wordsPerPlayer !== undefined) {
+      const hasConflict = game.players.some((p) => p.wordCount > patch.wordsPerPlayer!)
+      if (hasConflict) {
+        throw new AppError(
+          'SETTINGS_CONFLICT',
+          `Cannot reduce to ${patch.wordsPerPlayer} — one or more players have already submitted more words`
+        )
+      }
+    }
+
+    game.settings = { ...game.settings, ...patch }
+    const snapshot = { ...game, settings: { ...game.settings }, players: [...game.players] }
+    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
+    return snapshot
   }
 }

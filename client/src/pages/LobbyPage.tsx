@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { WORDS_PER_PLAYER } from '@wordfetti/shared'
-import type { Player } from '@wordfetti/shared'
+import type { GameSettings, Player } from '@wordfetti/shared'
 import { Logo } from '../components/Logo'
 import { loadSession } from '../session'
 import { useGameState } from '../hooks/useGameState'
@@ -11,6 +10,7 @@ export function LobbyPage() {
   const navigate = useNavigate()
   const [copied, setCopied] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
+  const [settingsValid, setSettingsValid] = useState(true)
   // useState initialiser avoids calling loadSession on every render
   const [session] = useState(() => loadSession())
   const currentPlayerId =
@@ -66,8 +66,8 @@ export function LobbyPage() {
   const team1 = game.players.filter((p) => p.team === 1)
   const team2 = game.players.filter((p) => p.team === 2)
   const needsMorePlayers = team1.length < 2 || team2.length < 2
-  const allWordsSubmitted = game.players.every((p) => p.wordCount >= WORDS_PER_PLAYER)
-  const pendingCount = game.players.filter((p) => p.wordCount < WORDS_PER_PLAYER).length
+  const allWordsSubmitted = game.players.every((p) => p.wordCount >= game.settings.wordsPerPlayer)
+  const pendingCount = game.players.filter((p) => p.wordCount < game.settings.wordsPerPlayer).length
 
   return (
     <div className="flex min-h-screen flex-col items-center bg-brand-cream px-4 py-8">
@@ -111,12 +111,14 @@ export function LobbyPage() {
             players={team1}
             currentPlayerId={currentPlayerId}
             colorScheme="coral"
+            wordsPerPlayer={game.settings.wordsPerPlayer}
           />
           <TeamColumn
             label="Team 2"
             players={team2}
             currentPlayerId={currentPlayerId}
             colorScheme="teal"
+            wordsPerPlayer={game.settings.wordsPerPlayer}
           />
         </div>
 
@@ -132,12 +134,23 @@ export function LobbyPage() {
           </div>
         )}
 
+        {/* Game settings panel */}
+        {currentPlayerId && (
+          <GameSettingsPanel
+            settings={game.settings}
+            isHost={currentPlayerId === game.hostId}
+            joinCode={joinCode!}
+            playerId={currentPlayerId}
+            onValidityChange={setSettingsValid}
+          />
+        )}
+
         {/* Context-aware footer */}
         {currentPlayerId === game.hostId && (
           <div className="mt-6 flex flex-col items-center gap-2">
             <button
               onClick={handleStartGame}
-              disabled={needsMorePlayers || !allWordsSubmitted}
+              disabled={needsMorePlayers || !allWordsSubmitted || !settingsValid}
               className="rounded-xl bg-brand-coral px-8 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
             >
               Start Game
@@ -177,9 +190,10 @@ type TeamColumnProps = {
   players: Player[]
   currentPlayerId: string | null
   colorScheme: keyof typeof SCHEME
+  wordsPerPlayer: number
 }
 
-function TeamColumn({ label, players, currentPlayerId, colorScheme }: TeamColumnProps) {
+function TeamColumn({ label, players, currentPlayerId, colorScheme, wordsPerPlayer }: TeamColumnProps) {
   const { bg, labelColor, badgeBg, needColor } = SCHEME[colorScheme]
   const needMore = Math.max(0, 2 - players.length)
   const headingId = `team-heading-${colorScheme}`
@@ -202,6 +216,7 @@ function TeamColumn({ label, players, currentPlayerId, colorScheme }: TeamColumn
               key={player.id}
               player={player}
               isCurrentPlayer={player.id === currentPlayerId}
+              wordsPerPlayer={wordsPerPlayer}
             />
           ))}
         </ul>
@@ -219,10 +234,11 @@ function TeamColumn({ label, players, currentPlayerId, colorScheme }: TeamColumn
 type PlayerRowProps = {
   player: Player
   isCurrentPlayer: boolean
+  wordsPerPlayer: number
 }
 
-function PlayerRow({ player, isCurrentPlayer }: PlayerRowProps) {
-  const done = player.wordCount >= WORDS_PER_PLAYER
+function PlayerRow({ player, isCurrentPlayer, wordsPerPlayer }: PlayerRowProps) {
+  const done = player.wordCount >= wordsPerPlayer
   return (
     <li className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm">
       <span aria-hidden="true">{done ? '✅' : '⭐'}</span>
@@ -233,9 +249,121 @@ function PlayerRow({ player, isCurrentPlayer }: PlayerRowProps) {
         )}
       </span>
       <span className={`text-xs font-medium ${done ? 'text-green-600' : 'text-gray-400'}`}>
-        {player.wordCount} / {WORDS_PER_PLAYER}
+        {player.wordCount} / {wordsPerPlayer}
       </span>
     </li>
+  )
+}
+
+type GameSettingsPanelProps = {
+  settings: GameSettings
+  isHost: boolean
+  joinCode: string
+  playerId: string
+  onValidityChange: (valid: boolean) => void
+}
+
+function GameSettingsPanel({ settings, isHost, joinCode, playerId, onValidityChange }: GameSettingsPanelProps) {
+  const [wordsInput, setWordsInput] = useState(String(settings.wordsPerPlayer))
+  const [timerInput, setTimerInput] = useState(String(settings.turnDurationSeconds))
+  const [wordsError, setWordsError] = useState<string | null>(null)
+  const [timerError, setTimerError] = useState<string | null>(null)
+
+  // Track latest settings in a ref so async handlers always revert to the current server value
+  const settingsRef = useRef(settings)
+  useEffect(() => { settingsRef.current = settings }, [settings])
+
+  // Keep local inputs in sync with SSE updates
+  useEffect(() => { setWordsInput(String(settings.wordsPerPlayer)) }, [settings.wordsPerPlayer])
+  useEffect(() => { setTimerInput(String(settings.turnDurationSeconds)) }, [settings.turnDurationSeconds])
+
+  // Propagate validity to parent so Start Game can be gated
+  useEffect(() => {
+    onValidityChange(wordsError === null && timerError === null)
+  }, [wordsError, timerError, onValidityChange])
+
+  async function saveField(field: 'wordsPerPlayer' | 'turnDurationSeconds', value: number) {
+    const res = await fetch(`/api/games/${joinCode}/settings`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId, [field]: value }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      // Use the ref to get the authoritative server value at the time the response arrives
+      const revertValue = settingsRef.current[field]
+      if (field === 'wordsPerPlayer') {
+        setWordsError(body.error ?? 'Could not save setting')
+        setWordsInput(String(revertValue))
+      } else {
+        setTimerError(body.error ?? 'Could not save setting')
+        setTimerInput(String(revertValue))
+      }
+    }
+  }
+
+  function handleWordsBlur() {
+    const n = Number(wordsInput)
+    if (!Number.isInteger(n) || n < 1 || n > 20) {
+      setWordsError('Must be a whole number between 1 and 20')
+      return
+    }
+    setWordsError(null)
+    if (n !== settings.wordsPerPlayer) saveField('wordsPerPlayer', n)
+  }
+
+  function handleTimerBlur() {
+    const n = Number(timerInput)
+    if (!Number.isInteger(n) || n < 5 || n > 600) {
+      setTimerError('Must be a whole number between 5 and 600')
+      return
+    }
+    setTimerError(null)
+    if (n !== settings.turnDurationSeconds) saveField('turnDurationSeconds', n)
+  }
+
+  if (!isHost) {
+    return (
+      <div className="mt-4 rounded-xl bg-white px-4 py-3 text-sm text-gray-600">
+        <p className="mb-2 font-semibold text-gray-700">Game Settings</p>
+        <p>Words per player: <span className="font-medium">{settings.wordsPerPlayer}</span></p>
+        <p>Round timer: <span className="font-medium">{settings.turnDurationSeconds}s</span></p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 rounded-xl bg-white px-4 py-3 text-sm">
+      <p className="mb-3 font-semibold text-gray-700">Game Settings</p>
+      <div className="flex flex-col gap-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-gray-600">Words per player (1–20)</span>
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={wordsInput}
+            onChange={(e) => setWordsInput(e.target.value)}
+            onBlur={handleWordsBlur}
+            className="rounded-lg border border-gray-200 px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+          />
+          {wordsError && <p className="text-xs text-red-500">{wordsError}</p>}
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-gray-600">Round timer in seconds (5–600)</span>
+          <input
+            type="number"
+            min={5}
+            max={600}
+            value={timerInput}
+            onChange={(e) => setTimerInput(e.target.value)}
+            onBlur={handleTimerBlur}
+            className="rounded-lg border border-gray-200 px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-coral"
+          />
+          {timerError && <p className="text-xs text-red-500">{timerError}</p>}
+        </label>
+      </div>
+    </div>
   )
 }
 

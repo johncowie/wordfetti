@@ -1,7 +1,9 @@
 export type Team = 1 | 2
 
-export const WORDS_PER_PLAYER = 3
-export const TURN_DURATION_SECONDS = 45
+export type GameSettings = {
+  wordsPerPlayer: number
+  turnDurationSeconds: number
+}
 
 export type Word = {
   id: string
@@ -29,4 +31,5 @@ export type Game = {
   currentWord?: string
   guessedThisTurn?: string[]
   turnStartedAt?: string   // ISO timestamp set when turnPhase transitions to 'active'; intentionally public — client uses it for countdown display
+  settings: GameSettings
 }

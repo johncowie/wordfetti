@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { WORDS_PER_PLAYER, type Word } from '@wordfetti/shared'
+import type { Word } from '@wordfetti/shared'
 import { loadSession } from '../session'
+import { useGameState } from '../hooks/useGameState'
 
 export function WordEntryPage() {
   const { joinCode } = useParams<{ joinCode: string }>()
   const navigate = useNavigate()
   const [session] = useState(() => loadSession())
+  const { game } = useGameState(joinCode)
 
   useEffect(() => {
     if (!session || session.joinCode !== joinCode) {
@@ -33,8 +35,9 @@ export function WordEntryPage() {
       })
   }, [joinCode, session])
 
-  const atLimit = words.length >= WORDS_PER_PLAYER
-  const remaining = WORDS_PER_PLAYER - words.length
+  const wordsPerPlayer = game?.settings.wordsPerPlayer ?? 3
+  const atLimit = words.length >= wordsPerPlayer
+  const remaining = wordsPerPlayer - words.length
 
   async function handleAdd() {
     if (!session || !input.trim()) return
@@ -94,7 +97,7 @@ export function WordEntryPage() {
           <p className="text-sm text-gray-500">Add words for others to guess</p>
         </div>
         <span className="absolute right-4 rounded-full bg-brand-coral px-2.5 py-1 text-xs font-semibold text-white">
-          {words.length}/{WORDS_PER_PLAYER}
+          {words.length}/{wordsPerPlayer}
         </span>
       </div>
 
@@ -102,7 +105,7 @@ export function WordEntryPage() {
       <div className="mx-4 h-2 overflow-hidden rounded-full bg-gray-200">
         <div
           className="h-full rounded-full bg-brand-coral transition-all"
-          style={{ width: `${(words.length / WORDS_PER_PLAYER) * 100}%` }}
+          style={{ width: `${(words.length / wordsPerPlayer) * 100}%` }}
         />
       </div>
 
@@ -173,7 +176,7 @@ export function WordEntryPage() {
           onClick={() => navigate(`/lobby/${joinCode}`)}
           className="w-full rounded-xl border border-gray-200 bg-white px-6 py-3.5 text-sm font-semibold text-gray-700 transition-opacity hover:opacity-90"
         >
-          Back to Lobby ({words.length}/{WORDS_PER_PLAYER})
+          Back to Lobby ({words.length}/{wordsPerPlayer})
         </button>
       </div>
     </div>

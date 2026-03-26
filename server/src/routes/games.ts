@@ -1,8 +1,8 @@
 import { Router } from 'express'
-import type { Game } from '@wordfetti/shared'
-import type { GameStore } from '../store/GameStore.js'
+import rateLimit from 'express-rate-limit'
+import type { Game, GameSettings } from '@wordfetti/shared'
 import { type Team } from '@wordfetti/shared'
-import type { GameConfig } from '../config.js'
+import type { GameStore } from '../store/GameStore.js'
 import { AppError } from '../errors.js'
 import { logger } from '../logger.js'
 
@@ -23,7 +23,7 @@ function isValidWordText(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.trim().length <= 50
 }
 
-export function createGamesRouter(store: GameStore, config: GameConfig): Router {
+export function createGamesRouter(store: GameStore): Router {
   const router = Router()
 
   // POST / — creates a game. If { name, team } are provided in the body,
@@ -120,7 +120,7 @@ export function createGamesRouter(store: GameStore, config: GameConfig): Router 
         return res.status(422).json({ error: 'Both teams need at least 2 players to start' })
       }
 
-      const allWordsSubmitted = game.players.every((p) => p.wordCount >= config.wordsPerPlayer)
+      const allWordsSubmitted = game.players.every((p) => p.wordCount >= game.settings.wordsPerPlayer)
       if (!allWordsSubmitted) {
         return res.status(422).json({ error: 'All players must submit their words before the game can start' })
       }
@@ -154,7 +154,7 @@ export function createGamesRouter(store: GameStore, config: GameConfig): Router 
         return res.status(403).json({ error: 'Player not in game' })
       }
       if (err instanceof AppError && err.code === 'WORD_LIMIT_REACHED') {
-        return res.status(409).json({ error: `You can only submit ${config.wordsPerPlayer} words` })
+        return res.status(409).json({ error: err.message })
       }
       if (err instanceof AppError && err.code === 'GAME_NOT_IN_LOBBY') {
         return res.status(422).json({ error: 'Words can only be submitted while game is in lobby' })
@@ -354,6 +354,52 @@ export function createGamesRouter(store: GameStore, config: GameConfig): Router 
       if (err instanceof AppError && err.code === 'GAME_IN_PROGRESS') {
         return res.status(409).json({ error: 'This game has already started' })
       }
+      next(err)
+    }
+  })
+
+  // Per-route limiter: settings changes broadcast to all connected clients via SSE.
+  // 100 req per 30s is generous for legitimate use (a human can barely trigger 10)
+  // but keeps the recovery window short if somehow hit during testing.
+  const settingsLimiter = rateLimit({ windowMs: 30_000, max: 100 })
+
+  // PATCH /:joinCode/settings — host updates game settings (lobby only)
+  router.patch('/:joinCode/settings', settingsLimiter, async (req, res, next) => {
+    try {
+      const joinCode = req.params.joinCode.toUpperCase()
+      const { playerId, wordsPerPlayer, turnDurationSeconds } = req.body ?? {}
+
+      if (typeof playerId !== 'string' || !playerId) {
+        return res.status(400).json({ error: 'playerId is required' })
+      }
+
+      const patch: Partial<GameSettings> = {}
+
+      if (wordsPerPlayer !== undefined) {
+        if (!Number.isInteger(wordsPerPlayer) || wordsPerPlayer < 1 || wordsPerPlayer > 20) {
+          return res.status(400).json({ error: 'wordsPerPlayer must be an integer between 1 and 20' })
+        }
+        patch.wordsPerPlayer = wordsPerPlayer
+      }
+
+      if (turnDurationSeconds !== undefined) {
+        if (!Number.isInteger(turnDurationSeconds) || turnDurationSeconds < 5 || turnDurationSeconds > 600) {
+          return res.status(400).json({ error: 'turnDurationSeconds must be an integer between 5 and 600' })
+        }
+        patch.turnDurationSeconds = turnDurationSeconds
+      }
+
+      if (Object.keys(patch).length === 0) {
+        return res.status(400).json({ error: 'At least one setting field must be provided' })
+      }
+
+      const updated = await store.updateSettings(joinCode, playerId, patch)
+      return res.json(toPublicGame(updated))
+    } catch (err: unknown) {
+      if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: 'Game not found' })
+      if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: 'Only the host can change game settings' })
+      if (err instanceof AppError && err.code === 'INVALID_STATE') return res.status(409).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'SETTINGS_CONFLICT') return res.status(409).json({ error: err.message })
       next(err)
     }
   })

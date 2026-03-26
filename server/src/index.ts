@@ -20,7 +20,7 @@ app.use(express.json())
 
 const apiLimiter = rateLimit({ windowMs: 60_000, max: 500 })
 app.use('/api', apiLimiter)
-app.use('/api/games', createGamesRouter(store, DEFAULT_GAME_CONFIG))
+app.use('/api/games', createGamesRouter(store))
 
 app.get('/health', (_req, res) => res.sendStatus(200))
 
