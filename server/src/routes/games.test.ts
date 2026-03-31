@@ -9,31 +9,34 @@ import type { Game } from '@wordfetti/shared'
 import { AppError } from '../errors.js'
 
 const DEFAULT_SETTINGS = { wordsPerPlayer: 5, turnDurationSeconds: 45 }
+const DEFAULT_TEAM_NAMES = { team1: 'Team Alpha', team2: 'Team Beta' }
 
 const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
-  createGame: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'lobby', players: [], settings: DEFAULT_SETTINGS } as Game),
+  createGame: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'lobby', players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES } as Game),
   createGameWithHost: async () => ({
-    game: { id: 'test-id', joinCode: 'ABC123', status: 'lobby', players: [], settings: DEFAULT_SETTINGS } as Game,
+    game: { id: 'test-id', joinCode: 'ABC123', status: 'lobby', players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES } as Game,
     player: { id: 'p1', name: 'Test', team: 1 as const, wordCount: 0 },
   }),
   getGameByJoinCode: async () => null,
   joinGame: async () => ({ id: 'p1', name: 'Test', team: 1 as const, wordCount: 0 }),
   subscribe: () => () => {},
-  startGame: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], settings: DEFAULT_SETTINGS }),
-  readyTurn: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], turnPhase: 'active' as const, currentWord: 'cat', settings: DEFAULT_SETTINGS }),
-  guessWord: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], currentWord: 'dog', settings: DEFAULT_SETTINGS }),
-  skipWord: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], currentWord: 'fish', settings: DEFAULT_SETTINGS }),
-  endTurn: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], turnPhase: 'ready' as const, settings: DEFAULT_SETTINGS }),
+  startGame: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES }),
+  readyTurn: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], turnPhase: 'active' as const, currentWord: 'cat', settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES }),
+  guessWord: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], currentWord: 'dog', settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES }),
+  skipWord: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], currentWord: 'fish', settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES }),
+  endTurn: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], turnPhase: 'ready' as const, settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES }),
   advanceRound: async () => ({
     id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, round: 2,
     players: [], turnPhase: 'ready' as const,
     originalWords: [{ id: 'w1', text: 'apple' }],  // must be stripped by toPublicGame
     settings: DEFAULT_SETTINGS,
+    teamNames: DEFAULT_TEAM_NAMES,
   } as any),
   addWord: async () => ({ id: 'w1', text: 'banana' }),
   getWords: async () => [],
   deleteWord: async () => undefined,
   updateSettings: vi.fn(),
+  updateTeamName: vi.fn(),
   ...overrides,
 })
 
@@ -100,7 +103,7 @@ describe('POST /api/games — with host body', () => {
 
 describe('GET /api/games/:joinCode', () => {
   it('returns 200 with game data when game exists', async () => {
-    const game = { id: 'g1', joinCode: 'ABC123', status: 'lobby' as const, players: [], settings: DEFAULT_SETTINGS }
+    const game = { id: 'g1', joinCode: 'ABC123', status: 'lobby' as const, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES }
     const store = mockStore({ getGameByJoinCode: async () => game })
     const res = await request(buildApp(store)).get('/ABC123')
     expect(res.status).toBe(200)
@@ -114,7 +117,7 @@ describe('GET /api/games/:joinCode', () => {
   })
 
   it('normalises lowercase join code to uppercase', async () => {
-    const game = { id: 'g1', joinCode: 'ABC123', status: 'lobby' as const, players: [], settings: DEFAULT_SETTINGS }
+    const game = { id: 'g1', joinCode: 'ABC123', status: 'lobby' as const, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES }
     const store = mockStore({ getGameByJoinCode: async () => game })
     const res = await request(buildApp(store)).get('/abc123')
     expect(res.status).toBe(200)
@@ -203,6 +206,7 @@ describe('POST /api/games/:joinCode/start', () => {
     ],
     hostId,
     settings: DEFAULT_SETTINGS,
+    teamNames: DEFAULT_TEAM_NAMES,
   }
 
   it('returns 404 when the game is not found', async () => {
@@ -286,7 +290,7 @@ describe('GET /api/games/:joinCode/events', () => {
   })
 
   it('returns text/event-stream content type for a known join code', async () => {
-    const game = { id: 'g1', joinCode: 'ABC123', status: 'lobby' as const, players: [], settings: DEFAULT_SETTINGS }
+    const game = { id: 'g1', joinCode: 'ABC123', status: 'lobby' as const, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES }
     const store = mockStore({ getGameByJoinCode: async () => game })
     await withServer(buildApp(store), (port) =>
       new Promise<void>((resolve, reject) => {
@@ -303,7 +307,7 @@ describe('GET /api/games/:joinCode/events', () => {
   })
 
   it('sends the current game state as the first data line', async () => {
-    const game = { id: 'g1', joinCode: 'ABC123', status: 'lobby' as const, players: [], settings: DEFAULT_SETTINGS }
+    const game = { id: 'g1', joinCode: 'ABC123', status: 'lobby' as const, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES }
     const store = mockStore({ getGameByJoinCode: async () => game })
     await withServer(buildApp(store), (port) =>
       new Promise<void>((resolve, reject) => {
@@ -327,7 +331,7 @@ describe('GET /api/games/:joinCode/events', () => {
   })
 
   it('calls the unsubscribe function when the connection closes', async () => {
-    const game = { id: 'g1', joinCode: 'ABC123', status: 'lobby' as const, players: [], settings: DEFAULT_SETTINGS }
+    const game = { id: 'g1', joinCode: 'ABC123', status: 'lobby' as const, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES }
     // The server-side req.on('close') fires asynchronously after the client destroys
     // the socket. Use a Promise so we wait for it rather than checking immediately.
     let resolveUnsubscribed!: () => void
@@ -455,7 +459,7 @@ describe('POST /api/games/:joinCode/ready', () => {
   it('response body does not contain hat, skippedThisTurn, or currentWordId', async () => {
     const store = mockStore({
       readyTurn: async () => ({
-        id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], settings: DEFAULT_SETTINGS,
+        id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES,
         hat: [{ id: 'w1', text: 'cat' }], skippedThisTurn: [], currentWordId: 'w1',
       } as Game & { hat: unknown; skippedThisTurn: unknown; currentWordId: unknown }),
     })
@@ -513,7 +517,7 @@ describe('POST /api/games/:joinCode/guess', () => {
   it('response body does not contain hat, skippedThisTurn, or currentWordId', async () => {
     const store = mockStore({
       guessWord: async () => ({
-        id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], settings: DEFAULT_SETTINGS,
+        id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES,
         hat: [{ id: 'w2', text: 'dog' }], skippedThisTurn: [], currentWordId: 'w2',
       } as Game & { hat: unknown; skippedThisTurn: unknown; currentWordId: unknown }),
     })
@@ -561,7 +565,7 @@ describe('POST /api/games/:joinCode/guess', () => {
   it('returns between_rounds status and scores when hat empties in round 1 or 2', async () => {
     const store = mockStore({
       guessWord: async () => ({
-        id: 'test-id', joinCode: 'ABC123', status: 'between_rounds' as const, players: [], settings: DEFAULT_SETTINGS,
+        id: 'test-id', joinCode: 'ABC123', status: 'between_rounds' as const, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES,
         scores: { team1: 3, team2: 2 },
       }),
     })
@@ -574,7 +578,7 @@ describe('POST /api/games/:joinCode/guess', () => {
   it('returns finished status and scores when hat empties in round 3', async () => {
     const store = mockStore({
       guessWord: async () => ({
-        id: 'test-id', joinCode: 'ABC123', status: 'finished' as const, players: [], settings: DEFAULT_SETTINGS,
+        id: 'test-id', joinCode: 'ABC123', status: 'finished' as const, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES,
         scores: { team1: 5, team2: 4 },
       }),
     })
@@ -597,7 +601,7 @@ describe('POST /api/games/:joinCode/skip', () => {
   it('response body does not contain hat, skippedThisTurn, or currentWordId', async () => {
     const store = mockStore({
       skipWord: async () => ({
-        id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], settings: DEFAULT_SETTINGS,
+        id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES,
         hat: [{ id: 'w3', text: 'fish' }], skippedThisTurn: ['w1'], currentWordId: 'w3',
       } as Game & { hat: unknown; skippedThisTurn: unknown; currentWordId: unknown }),
     })
@@ -655,7 +659,7 @@ describe('POST /api/games/:joinCode/end-turn', () => {
   it('response body does not contain clueGiverIndices', async () => {
     const store = mockStore({
       endTurn: async () => ({
-        id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], settings: DEFAULT_SETTINGS,
+        id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES,
         turnPhase: 'ready' as const,
         clueGiverIndices: { 1: 1, 2: 0 },
       } as Game & { clueGiverIndices: unknown }),
@@ -703,7 +707,7 @@ describe('POST /api/games/:joinCode/end-turn', () => {
   it('returns between_rounds status and scores when the hat empties', async () => {
     const store = mockStore({
       endTurn: async () => ({
-        id: 'test-id', joinCode: 'ABC123', status: 'between_rounds' as const, players: [], settings: DEFAULT_SETTINGS,
+        id: 'test-id', joinCode: 'ABC123', status: 'between_rounds' as const, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES,
         scores: { team1: 2, team2: 3 },
       }),
     })
@@ -785,7 +789,7 @@ describe('POST /api/games/:joinCode/advance-round', () => {
   it('returns 200 with round 3 in_progress when advancing from round 2 game', async () => {
     const store = mockStore({
       advanceRound: async () => ({
-        id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, round: 3 as const, players: [], settings: DEFAULT_SETTINGS,
+        id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, round: 3 as const, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES,
       }),
     })
     const res = await request(buildApp(store)).post('/ABC123/advance-round').send({ playerId: 'p1' })
@@ -907,5 +911,65 @@ describe('PATCH /api/games/:joinCode/settings', () => {
     })
     const res = await request(buildApp(store)).post('/ABC123/start').send({ playerId: hostId2 })
     expect(res.status).toBe(200)
+  })
+})
+
+describe('PATCH /api/games/:joinCode/team-name', () => {
+  const hostId = 'host-player-id'
+  const updatedGame: Game = {
+    id: 'test-id', joinCode: 'ABC123', status: 'lobby', players: [],
+    settings: DEFAULT_SETTINGS, teamNames: { team1: 'Red Dragons', team2: 'Team Beta' },
+  }
+
+  it('returns 200 with updated teamNames on success', async () => {
+    const store = mockStore({ updateTeamName: vi.fn().mockResolvedValue(updatedGame) })
+    const res = await request(buildApp(store)).patch('/ABC123/team-name').send({ playerId: hostId, team: 1, name: 'Red Dragons' })
+    expect(res.status).toBe(200)
+    expect(res.body.teamNames.team1).toBe('Red Dragons')
+  })
+
+  it('returns 400 when playerId is missing', async () => {
+    const res = await request(buildApp(mockStore())).patch('/ABC123/team-name').send({ team: 1, name: 'Red Dragons' })
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 400 when team is invalid', async () => {
+    const res = await request(buildApp(mockStore())).patch('/ABC123/team-name').send({ playerId: hostId, team: 3, name: 'Red Dragons' })
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 400 when name is missing', async () => {
+    const res = await request(buildApp(mockStore())).patch('/ABC123/team-name').send({ playerId: hostId, team: 1 })
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 404 when store throws NOT_FOUND', async () => {
+    const store = mockStore({ updateTeamName: vi.fn().mockRejectedValue(new AppError('NOT_FOUND', 'Game not found')) })
+    const res = await request(buildApp(store)).patch('/ABC123/team-name').send({ playerId: hostId, team: 1, name: 'Red Dragons' })
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 403 when store throws FORBIDDEN', async () => {
+    const store = mockStore({ updateTeamName: vi.fn().mockRejectedValue(new AppError('FORBIDDEN', 'Only the host can rename teams')) })
+    const res = await request(buildApp(store)).patch('/ABC123/team-name').send({ playerId: 'not-host', team: 1, name: 'Red Dragons' })
+    expect(res.status).toBe(403)
+  })
+
+  it('returns 409 when store throws INVALID_STATE', async () => {
+    const store = mockStore({ updateTeamName: vi.fn().mockRejectedValue(new AppError('INVALID_STATE', 'lobby only')) })
+    const res = await request(buildApp(store)).patch('/ABC123/team-name').send({ playerId: hostId, team: 1, name: 'Red Dragons' })
+    expect(res.status).toBe(409)
+  })
+
+  it('returns 409 when store throws TEAM_NAME_CONFLICT', async () => {
+    const store = mockStore({ updateTeamName: vi.fn().mockRejectedValue(new AppError('TEAM_NAME_CONFLICT', 'Both teams cannot have the same name')) })
+    const res = await request(buildApp(store)).patch('/ABC123/team-name').send({ playerId: hostId, team: 1, name: 'Team Beta' })
+    expect(res.status).toBe(409)
+  })
+
+  it('returns 400 when store throws VALIDATION', async () => {
+    const store = mockStore({ updateTeamName: vi.fn().mockRejectedValue(new AppError('VALIDATION', 'Team name must be between 1 and 20 characters')) })
+    const res = await request(buildApp(store)).patch('/ABC123/team-name').send({ playerId: hostId, team: 1, name: '' })
+    expect(res.status).toBe(400)
   })
 })

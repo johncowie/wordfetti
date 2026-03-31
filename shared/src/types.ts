@@ -31,5 +31,6 @@ export type Game = {
   currentWord?: string
   guessedThisTurn?: string[]
   turnStartedAt?: string   // ISO timestamp set when turnPhase transitions to 'active'; intentionally public — client uses it for countdown display
+  teamNames: { team1: string; team2: string }
   settings: GameSettings
 }

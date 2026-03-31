@@ -3,6 +3,7 @@ import { type Game, type GameSettings, type Player, type Team, type Word } from 
 import type { GameStore } from './GameStore.js'
 import type { GameConfig } from '../config.js'
 import { generateJoinCode } from './joinCode.js'
+import { pickTeamNames } from '../teamNames.js'
 import { AppError } from '../errors.js'
 import { logger } from '../logger.js'
 
@@ -30,7 +31,10 @@ export class InMemoryGameStore implements GameStore {
   private readonly subscribers = new Map<string, Set<(game: Game) => void>>()
   private readonly words = new Map<string, Word[]>()
 
-  constructor(private readonly config: GameConfig) {}
+  constructor(
+    private readonly config: GameConfig,
+    private readonly teamNamesPool: string[] = ['Team 1', 'Team 2'],
+  ) {}
 
   async createGame(): Promise<Game> {
     let joinCode: string
@@ -48,6 +52,7 @@ export class InMemoryGameStore implements GameStore {
       joinCode,
       status: 'lobby',
       players: [],
+      teamNames: pickTeamNames(this.teamNamesPool),
       settings: {
         wordsPerPlayer: this.config.wordsPerPlayer,
         turnDurationSeconds: this.config.turnDurationSeconds,
@@ -429,6 +434,30 @@ export class InMemoryGameStore implements GameStore {
 
     game.settings = { ...game.settings, ...patch }
     const snapshot = { ...game, settings: { ...game.settings }, players: [...game.players] }
+    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
+    return snapshot
+  }
+
+  async updateTeamName(joinCode: string, playerId: string, team: 1 | 2, name: string): Promise<Game> {
+    const game = this.games.get(joinCode)
+    if (!game) throw new AppError('NOT_FOUND', 'Game not found')
+    if (game.hostId !== playerId) throw new AppError('FORBIDDEN', 'Only the host can rename teams')
+    if (game.status !== 'lobby') throw new AppError('INVALID_STATE', 'Team names can only be changed while the game is in the lobby')
+
+    const trimmed = name.trim()
+    if (trimmed.length === 0 || trimmed.length > 20) {
+      throw new AppError('VALIDATION', 'Team name must be between 1 and 20 characters')
+    }
+    const otherName = team === 1 ? game.teamNames.team2 : game.teamNames.team1
+    if (trimmed.toLowerCase() === otherName.toLowerCase()) {
+      throw new AppError('TEAM_NAME_CONFLICT', 'Both teams cannot have the same name')
+    }
+
+    game.teamNames = team === 1
+      ? { team1: trimmed, team2: game.teamNames.team2 }
+      : { team1: game.teamNames.team1, team2: trimmed }
+
+    const snapshot = { ...game, teamNames: { ...game.teamNames }, players: [...game.players] }
     this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
     return snapshot
   }

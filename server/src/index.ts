@@ -7,10 +7,11 @@ import { fileURLToPath } from 'url'
 import { InMemoryGameStore } from './store/InMemoryGameStore.js'
 import { createGamesRouter } from './routes/games.js'
 import { DEFAULT_GAME_CONFIG } from './config.js'
+import { loadTeamNames } from './teamNames.js'
 import { logger } from './logger.js'
 
 const app = express()
-const store = new InMemoryGameStore(DEFAULT_GAME_CONFIG)
+const store = new InMemoryGameStore(DEFAULT_GAME_CONFIG, loadTeamNames())
 
 const corsOrigin = process.env.CORS_ORIGIN ?? 'http://localhost:5173'
 app.set('trust proxy', 1) // Trust first proxy (reverse proxy in Docker)

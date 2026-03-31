@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { InMemoryGameStore } from './InMemoryGameStore.js'
+import { pickTeamNames } from '../teamNames.js'
 import type { InternalGame } from './InMemoryGameStore.js'
 import type { Game } from '@wordfetti/shared'
 import type { GameConfig } from '../config.js'
@@ -933,5 +934,100 @@ describe('updateSettings', () => {
     const result = await store.updateSettings(game.joinCode, host.id, { turnDurationSeconds: 120 })
     expect(result.settings.turnDurationSeconds).toBe(120)
     expect(result.settings.wordsPerPlayer).toBe(TEST_CONFIG.wordsPerPlayer)
+  })
+})
+
+describe('pickTeamNames', () => {
+  it('returns two distinct names from the pool', () => {
+    const result = pickTeamNames(['Alpha', 'Beta', 'Gamma'])
+    expect(result.team1).not.toBe(result.team2)
+    expect(['Alpha', 'Beta', 'Gamma']).toContain(result.team1)
+    expect(['Alpha', 'Beta', 'Gamma']).toContain(result.team2)
+  })
+
+  it('falls back when pool has only one entry', () => {
+    expect(pickTeamNames(['Solo'])).toEqual({ team1: 'Team 1', team2: 'Team 2' })
+  })
+
+  it('falls back when pool is empty', () => {
+    expect(pickTeamNames([])).toEqual({ team1: 'Team 1', team2: 'Team 2' })
+  })
+})
+
+describe('teamNames on createGame', () => {
+  it('creates a game with two distinct team names from the injected pool', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG, ['Alpha', 'Beta', 'Gamma'])
+    const game = await store.createGame()
+    expect(game.teamNames.team1).not.toBe(game.teamNames.team2)
+    expect(['Alpha', 'Beta', 'Gamma']).toContain(game.teamNames.team1)
+    expect(['Alpha', 'Beta', 'Gamma']).toContain(game.teamNames.team2)
+  })
+
+  it('falls back to Team 1 / Team 2 when pool has fewer than 2 entries', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG, ['Solo'])
+    const game = await store.createGame()
+    expect(game.teamNames).toEqual({ team1: 'Team 1', team2: 'Team 2' })
+  })
+})
+
+describe('updateTeamName', () => {
+  it('renames team 1 and broadcasts the change', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG, ['Alpha', 'Beta'])
+    const { game, player: host } = await store.createGameWithHost('Alice', 1)
+    const events: Game[] = []
+    store.subscribe(game.joinCode, (g) => events.push(g))
+
+    const updated = await store.updateTeamName(game.joinCode, host.id, 1, 'Red Dragons')
+    expect(updated.teamNames.team1).toBe('Red Dragons')
+    expect(events.at(-1)?.teamNames.team1).toBe('Red Dragons')
+  })
+
+  it('renames team 2 and broadcasts the change', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG, ['Alpha', 'Beta'])
+    const { game, player: host } = await store.createGameWithHost('Alice', 1)
+    const events: Game[] = []
+    store.subscribe(game.joinCode, (g) => events.push(g))
+
+    const updated = await store.updateTeamName(game.joinCode, host.id, 2, 'Blue Tigers')
+    expect(updated.teamNames.team2).toBe('Blue Tigers')
+    expect(events.at(-1)?.teamNames.team2).toBe('Blue Tigers')
+  })
+
+  it('throws FORBIDDEN when caller is not the host', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG)
+    const { game } = await store.createGameWithHost('Alice', 1)
+    const bob = await store.joinGame(game.joinCode, 'Bob', 2)
+    await expect(store.updateTeamName(game.joinCode, bob.id, 2, 'New Name')).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('throws INVALID_STATE when game is in progress', async () => {
+    const { store, joinCode } = await setupReadyGame()
+    const startedGame = await store.startGame(joinCode)
+    const hostId = startedGame.hostId!
+    await expect(store.updateTeamName(joinCode, hostId, 1, 'New Name')).rejects.toMatchObject({ code: 'INVALID_STATE' })
+  })
+
+  it('throws TEAM_NAME_CONFLICT when name matches the other team (case-insensitive)', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG, ['Alpha', 'Beta'])
+    const { game, player: host } = await store.createGameWithHost('Alice', 1)
+    const otherName = game.teamNames.team2
+    await expect(store.updateTeamName(game.joinCode, host.id, 1, otherName.toUpperCase())).rejects.toMatchObject({ code: 'TEAM_NAME_CONFLICT' })
+  })
+
+  it('throws VALIDATION for an empty name', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG)
+    const { game, player: host } = await store.createGameWithHost('Alice', 1)
+    await expect(store.updateTeamName(game.joinCode, host.id, 1, '   ')).rejects.toMatchObject({ code: 'VALIDATION' })
+  })
+
+  it('throws VALIDATION for a name exceeding 20 characters', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG)
+    const { game, player: host } = await store.createGameWithHost('Alice', 1)
+    await expect(store.updateTeamName(game.joinCode, host.id, 1, 'A'.repeat(21))).rejects.toMatchObject({ code: 'VALIDATION' })
+  })
+
+  it('throws NOT_FOUND for an unknown join code', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG)
+    await expect(store.updateTeamName('XXXXXX', 'player1', 1, 'Test')).rejects.toMatchObject({ code: 'NOT_FOUND' })
   })
 })

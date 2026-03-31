@@ -16,4 +16,5 @@ export interface GameStore {
   getWords(joinCode: string, playerId: string): Promise<Word[]>
   deleteWord(joinCode: string, playerId: string, wordId: string): Promise<void>
   updateSettings(joinCode: string, playerId: string, patch: Partial<GameSettings>): Promise<Game>
+  updateTeamName(joinCode: string, playerId: string, team: 1 | 2, name: string): Promise<Game>
 }

@@ -404,5 +404,33 @@ export function createGamesRouter(store: GameStore): Router {
     }
   })
 
+  // PATCH /:joinCode/team-name — host renames a team (lobby only)
+  router.patch('/:joinCode/team-name', settingsLimiter, async (req, res, next) => {
+    try {
+      const joinCode = req.params.joinCode.toUpperCase()
+      const { playerId, team, name } = req.body ?? {}
+
+      if (typeof playerId !== 'string' || !playerId) {
+        return res.status(400).json({ error: 'playerId is required' })
+      }
+      if (team !== 1 && team !== 2) {
+        return res.status(400).json({ error: 'team must be 1 or 2' })
+      }
+      if (typeof name !== 'string') {
+        return res.status(400).json({ error: 'name is required' })
+      }
+
+      const updated = await store.updateTeamName(joinCode, playerId, team, name)
+      return res.json(toPublicGame(updated))
+    } catch (err: unknown) {
+      if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'INVALID_STATE') return res.status(409).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'TEAM_NAME_CONFLICT') return res.status(409).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'VALIDATION') return res.status(400).json({ error: err.message })
+      next(err)
+    }
+  })
+
   return router
 }

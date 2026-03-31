@@ -107,18 +107,26 @@ export function LobbyPage() {
         {/* Team columns */}
         <div className="mt-6 grid grid-cols-2 gap-4">
           <TeamColumn
-            label="Team 1"
+            teamName={game.teamNames.team1}
+            otherTeamName={game.teamNames.team2}
             players={team1}
             currentPlayerId={currentPlayerId}
             colorScheme="coral"
             wordsPerPlayer={game.settings.wordsPerPlayer}
+            isHost={currentPlayerId === game.hostId}
+            joinCode={joinCode!}
+            playerId={currentPlayerId ?? ''}
           />
           <TeamColumn
-            label="Team 2"
+            teamName={game.teamNames.team2}
+            otherTeamName={game.teamNames.team1}
             players={team2}
             currentPlayerId={currentPlayerId}
             colorScheme="teal"
             wordsPerPlayer={game.settings.wordsPerPlayer}
+            isHost={currentPlayerId === game.hostId}
+            joinCode={joinCode!}
+            playerId={currentPlayerId ?? ''}
           />
         </div>
 
@@ -186,23 +194,100 @@ const SCHEME = {
 } as const
 
 type TeamColumnProps = {
-  label: string
+  teamName: string
+  otherTeamName: string
   players: Player[]
   currentPlayerId: string | null
   colorScheme: keyof typeof SCHEME
   wordsPerPlayer: number
+  isHost: boolean
+  joinCode: string
+  playerId: string
 }
 
-function TeamColumn({ label, players, currentPlayerId, colorScheme, wordsPerPlayer }: TeamColumnProps) {
+function TeamColumn({ teamName, otherTeamName, players, currentPlayerId, colorScheme, wordsPerPlayer, isHost, joinCode, playerId }: TeamColumnProps) {
   const { bg, labelColor, badgeBg, needColor } = SCHEME[colorScheme]
   const needMore = Math.max(0, 2 - players.length)
   const headingId = `team-heading-${colorScheme}`
+  const [editing, setEditing] = useState(false)
+  const [editValue, setEditValue] = useState(teamName)
+  const [editError, setEditError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!editing) setEditValue(teamName)
+  }, [teamName, editing])
+
+  async function handleSave() {
+    const trimmed = editValue.trim()
+    if (trimmed.length === 0 || trimmed.length > 20) {
+      setEditError('Name must be 1–20 characters')
+      return
+    }
+    if (trimmed.toLowerCase() === otherTeamName.toLowerCase()) {
+      setEditError('Both teams cannot have the same name')
+      return
+    }
+    if (trimmed === teamName) {
+      setEditing(false)
+      return
+    }
+    setEditError(null)
+    const team = colorScheme === 'coral' ? 1 : 2
+    const res = await fetch(`/api/games/${joinCode}/team-name`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId, team, name: trimmed }),
+    })
+    if (res.ok) {
+      setEditing(false)
+    } else {
+      const body = await res.json().catch(() => ({}))
+      setEditError(body.error ?? 'Could not save team name')
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') handleSave()
+    if (e.key === 'Escape') {
+      setEditing(false)
+      setEditValue(teamName)
+      setEditError(null)
+    }
+  }
 
   return (
     <section aria-labelledby={headingId} className={`rounded-2xl ${bg} p-4`}>
-      <div className="mb-3 flex items-center justify-between">
-        <h2 id={headingId} className={`text-sm font-semibold ${labelColor}`}>{label}</h2>
-        <span className={`rounded-full ${badgeBg} px-2 py-0.5 text-xs font-bold text-white`}>
+      <div className="mb-3 flex items-center justify-between gap-1">
+        <div className="flex min-w-0 flex-1 items-center gap-1">
+          {editing ? (
+            <div className="flex flex-1 flex-col gap-1">
+              <input
+                autoFocus
+                maxLength={20}
+                value={editValue}
+                onChange={(e) => { setEditValue(e.target.value); setEditError(null) }}
+                onBlur={handleSave}
+                onKeyDown={handleKeyDown}
+                className={`w-full bg-transparent text-sm font-semibold ${labelColor} border-b border-current focus:outline-none`}
+              />
+              {editError && <p className="text-xs text-red-500">{editError}</p>}
+            </div>
+          ) : (
+            <>
+              <h2 id={headingId} className={`truncate text-sm font-semibold ${labelColor}`}>{teamName}</h2>
+              {isHost && (
+                <button
+                  onClick={() => { setEditing(true); setEditValue(teamName) }}
+                  aria-label="Edit team name"
+                  className={`shrink-0 ${labelColor} opacity-60 hover:opacity-100`}
+                >
+                  <PencilIcon />
+                </button>
+              )}
+            </>
+          )}
+        </div>
+        <span className={`shrink-0 rounded-full ${badgeBg} px-2 py-0.5 text-xs font-bold text-white`}>
           {players.length}
         </span>
       </div>
@@ -372,6 +457,15 @@ function CopyIcon() {
     <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
       <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
       <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  )
+}
+
+function PencilIcon() {
+  return (
+    <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
     </svg>
   )
 }
