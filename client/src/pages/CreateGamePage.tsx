@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { Team } from '@wordfetti/shared'
 import { Logo } from '../components/Logo'
@@ -11,6 +11,14 @@ export function CreateGamePage() {
   const [team, setTeam] = useState<Team | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [previewNames, setPreviewNames] = useState<{ team1: string; team2: string } | null>(null)
+
+  useEffect(() => {
+    fetch('/api/games/team-names')
+      .then((res) => res.json())
+      .then((data) => setPreviewNames(data))
+      .catch(() => {/* fall back to default labels */})
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -24,7 +32,7 @@ export function CreateGamePage() {
       const res = await fetch('/api/games', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmedName, team }),
+        body: JSON.stringify({ name: trimmedName, team, ...(previewNames ? { teamNames: previewNames } : {}) }),
       })
       if (!res.ok) throw new Error(`Unexpected response: ${res.status}`)
       const { joinCode, player } = await res.json()
@@ -67,7 +75,13 @@ export function CreateGamePage() {
             <span id="create-team-label" className="text-sm font-medium text-gray-700">
               Pick Your Team
             </span>
-            <TeamSelector id="create-team-label" value={team} onChange={setTeam} />
+            <TeamSelector
+              id="create-team-label"
+              value={team}
+              onChange={setTeam}
+              team1Label={previewNames?.team1}
+              team2Label={previewNames?.team2}
+            />
           </div>
 
           {error && (

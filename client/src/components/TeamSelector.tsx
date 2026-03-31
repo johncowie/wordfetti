@@ -4,9 +4,11 @@ type Props = {
   id: string
   value: Team | null
   onChange: (team: Team) => void
+  team1Label?: string
+  team2Label?: string
 }
 
-export function TeamSelector({ id, value, onChange }: Props) {
+export function TeamSelector({ id, value, onChange, team1Label = 'Team 1', team2Label = 'Team 2' }: Props) {
   return (
     <div role="radiogroup" aria-labelledby={id} className="flex gap-3">
       <button
@@ -20,7 +22,7 @@ export function TeamSelector({ id, value, onChange }: Props) {
             : 'bg-brand-muted text-gray-600 hover:bg-red-100'
         }`}
       >
-        Team 1
+        {team1Label}
       </button>
       <button
         type="button"
@@ -33,7 +35,7 @@ export function TeamSelector({ id, value, onChange }: Props) {
             : 'bg-brand-muted text-gray-600 hover:bg-teal-100'
         }`}
       >
-        Team 2
+        {team2Label}
       </button>
     </div>
   )

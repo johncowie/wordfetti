@@ -968,6 +968,35 @@ describe('teamNames on createGame', () => {
     const game = await store.createGame()
     expect(game.teamNames).toEqual({ team1: 'Team 1', team2: 'Team 2' })
   })
+
+  it('uses provided teamNames instead of picking from the pool', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG, ['Alpha', 'Beta', 'Gamma'])
+    const game = await store.createGame({ team1: 'Sharks', team2: 'Jets' })
+    expect(game.teamNames).toEqual({ team1: 'Sharks', team2: 'Jets' })
+  })
+})
+
+describe('getTeamNamePreview', () => {
+  it('returns two distinct names from the pool', () => {
+    const store = new InMemoryGameStore(TEST_CONFIG, ['Alpha', 'Beta', 'Gamma'])
+    const result = store.getTeamNamePreview()
+    expect(result.team1).not.toBe(result.team2)
+    expect(['Alpha', 'Beta', 'Gamma']).toContain(result.team1)
+    expect(['Alpha', 'Beta', 'Gamma']).toContain(result.team2)
+  })
+
+  it('falls back to Team 1 / Team 2 when pool has fewer than 2 entries', () => {
+    const store = new InMemoryGameStore(TEST_CONFIG, ['Solo'])
+    expect(store.getTeamNamePreview()).toEqual({ team1: 'Team 1', team2: 'Team 2' })
+  })
+})
+
+describe('createGameWithHost — with teamNames', () => {
+  it('uses provided teamNames when creating game with host', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG, ['Alpha', 'Beta'])
+    const { game } = await store.createGameWithHost('Alice', 1, { team1: 'Sharks', team2: 'Jets' })
+    expect(game.teamNames).toEqual({ team1: 'Sharks', team2: 'Jets' })
+  })
 })
 
 describe('updateTeamName', () => {

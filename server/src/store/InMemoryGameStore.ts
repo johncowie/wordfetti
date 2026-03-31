@@ -36,7 +36,11 @@ export class InMemoryGameStore implements GameStore {
     private readonly teamNamesPool: string[] = ['Team 1', 'Team 2'],
   ) {}
 
-  async createGame(): Promise<Game> {
+  getTeamNamePreview(): { team1: string; team2: string } {
+    return pickTeamNames(this.teamNamesPool)
+  }
+
+  async createGame(teamNames?: { team1: string; team2: string }): Promise<Game> {
     let joinCode: string
     let attempts = 0
     do {
@@ -52,7 +56,7 @@ export class InMemoryGameStore implements GameStore {
       joinCode,
       status: 'lobby',
       players: [],
-      teamNames: pickTeamNames(this.teamNamesPool),
+      teamNames: teamNames ?? pickTeamNames(this.teamNamesPool),
       settings: {
         wordsPerPlayer: this.config.wordsPerPlayer,
         turnDurationSeconds: this.config.turnDurationSeconds,
@@ -66,8 +70,8 @@ export class InMemoryGameStore implements GameStore {
     return { ...game, players: [...game.players] }
   }
 
-  async createGameWithHost(name: string, team: Team): Promise<{ game: Game; player: Player }> {
-    const game = await this.createGame()
+  async createGameWithHost(name: string, team: Team, teamNames?: { team1: string; team2: string }): Promise<{ game: Game; player: Player }> {
+    const game = await this.createGame(teamNames)
     const player = await this.joinGame(game.joinCode, name, team)
     // Record the host on the internal game object
     const internal = this.games.get(game.joinCode)!

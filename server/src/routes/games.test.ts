@@ -35,6 +35,7 @@ const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
   addWord: async () => ({ id: 'w1', text: 'banana' }),
   getWords: async () => [],
   deleteWord: async () => undefined,
+  getTeamNamePreview: vi.fn().mockReturnValue(DEFAULT_TEAM_NAMES),
   updateSettings: vi.fn(),
   updateTeamName: vi.fn(),
   ...overrides,
@@ -98,6 +99,44 @@ describe('POST /api/games — with host body', () => {
   it('returns 400 when team is invalid in host body', async () => {
     const res = await request(buildApp(mockStore())).post('/').send({ name: 'Alice', team: 3 })
     expect(res.status).toBe(400)
+  })
+})
+
+describe('POST /api/games — with teamNames body', () => {
+  it('passes teamNames to createGameWithHost when valid', async () => {
+    const createGameWithHost = vi.fn().mockResolvedValue({
+      game: { id: 'g1', joinCode: 'ABC123', status: 'lobby', players: [], settings: DEFAULT_SETTINGS, teamNames: { team1: 'Sharks', team2: 'Jets' } } as Game,
+      player: { id: 'p1', name: 'Alice', team: 1 as const, wordCount: 0 },
+    })
+    const store = mockStore({ createGameWithHost })
+    const res = await request(buildApp(store))
+      .post('/')
+      .send({ name: 'Alice', team: 1, teamNames: { team1: 'Sharks', team2: 'Jets' } })
+    expect(res.status).toBe(201)
+    expect(createGameWithHost).toHaveBeenCalledWith('Alice', 1, { team1: 'Sharks', team2: 'Jets' })
+  })
+
+  it('returns 400 when teamNames has a name exceeding 20 characters', async () => {
+    const res = await request(buildApp(mockStore()))
+      .post('/')
+      .send({ name: 'Alice', team: 1, teamNames: { team1: 'A'.repeat(21), team2: 'Jets' } })
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 400 when both team names are identical (case-insensitive)', async () => {
+    const res = await request(buildApp(mockStore()))
+      .post('/')
+      .send({ name: 'Alice', team: 1, teamNames: { team1: 'Sharks', team2: 'sharks' } })
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('GET /api/games/team-names', () => {
+  it('returns random team name preview from the store', async () => {
+    const store = mockStore({ getTeamNamePreview: vi.fn().mockReturnValue({ team1: 'Sharks', team2: 'Jets' }) })
+    const res = await request(buildApp(store)).get('/team-names')
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ team1: 'Sharks', team2: 'Jets' })
   })
 })
 

@@ -1,8 +1,9 @@
 import type { Game, GameSettings, Player, Team, Word } from '@wordfetti/shared'
 
 export interface GameStore {
-  createGame(): Promise<Game>
-  createGameWithHost(name: string, team: Team): Promise<{ game: Game; player: Player }>
+  getTeamNamePreview(): { team1: string; team2: string }
+  createGame(teamNames?: { team1: string; team2: string }): Promise<Game>
+  createGameWithHost(name: string, team: Team, teamNames?: { team1: string; team2: string }): Promise<{ game: Game; player: Player }>
   getGameByJoinCode(joinCode: string): Promise<Game | null>
   joinGame(joinCode: string, name: string, team: Team): Promise<Player>
   subscribe(joinCode: string, callback: (game: Game) => void): () => void

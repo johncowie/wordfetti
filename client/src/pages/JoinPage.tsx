@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { Team } from '@wordfetti/shared'
 import { Logo } from '../components/Logo'
@@ -13,6 +13,21 @@ export function JoinPage() {
   const [team, setTeam] = useState<Team | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [gameTeamNames, setGameTeamNames] = useState<{ team1: string; team2: string } | null>(null)
+
+  useEffect(() => {
+    if (code.length !== 6) {
+      setGameTeamNames(null)
+      return
+    }
+    fetch(`/api/games/${code}`)
+      .then((res) => {
+        if (!res.ok) { setGameTeamNames(null); return }
+        return res.json()
+      })
+      .then((data) => { if (data) setGameTeamNames(data.teamNames) })
+      .catch(() => setGameTeamNames(null))
+  }, [code])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -92,10 +107,18 @@ export function JoinPage() {
             />
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <span id="join-team-label" className="text-sm font-medium text-gray-700">Pick Your Team</span>
-            <TeamSelector id="join-team-label" value={team} onChange={setTeam} />
-          </div>
+          {gameTeamNames && (
+            <div className="flex flex-col gap-1.5">
+              <span id="join-team-label" className="text-sm font-medium text-gray-700">Pick Your Team</span>
+              <TeamSelector
+                id="join-team-label"
+                value={team}
+                onChange={setTeam}
+                team1Label={gameTeamNames.team1}
+                team2Label={gameTeamNames.team2}
+              />
+            </div>
+          )}
 
           {error && (
             <p role="alert" className="text-center text-sm text-red-600">

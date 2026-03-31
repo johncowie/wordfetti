@@ -30,7 +30,22 @@ export function createGamesRouter(store: GameStore): Router {
   // atomically registers the host as the first player.
   router.post('/', async (req, res, next) => {
     try {
-      const { name, team } = req.body ?? {}
+      const { name, team, teamNames } = req.body ?? {}
+
+      let resolvedTeamNames: { team1: string; team2: string } | undefined
+      if (teamNames !== undefined) {
+        if (
+          typeof teamNames?.team1 !== 'string' || teamNames.team1.trim().length === 0 || teamNames.team1.trim().length > 20 ||
+          typeof teamNames?.team2 !== 'string' || teamNames.team2.trim().length === 0 || teamNames.team2.trim().length > 20
+        ) {
+          return res.status(400).json({ error: 'Each team name must be between 1 and 20 characters' })
+        }
+        if (teamNames.team1.trim().toLowerCase() === teamNames.team2.trim().toLowerCase()) {
+          return res.status(400).json({ error: 'Team names must be different' })
+        }
+        resolvedTeamNames = { team1: teamNames.team1.trim(), team2: teamNames.team2.trim() }
+      }
+
       if (name !== undefined || team !== undefined) {
         // Host registration path
         if (!isValidName(name)) {
@@ -39,19 +54,25 @@ export function createGamesRouter(store: GameStore): Router {
         if (!isValidTeam(team)) {
           return res.status(400).json({ error: 'Team must be 1 or 2' })
         }
-        const { game, player } = await store.createGameWithHost(name.trim(), team)
+        const { game, player } = await store.createGameWithHost(name.trim(), team, resolvedTeamNames)
         logger.info('Game created', { joinCode: game.joinCode, hasHost: true })
         res.set('Location', `/api/games/${game.joinCode}`)
         return res.status(201).json({ joinCode: game.joinCode, player })
       }
       // No-body path (kept for backward compatibility with tests)
-      const game = await store.createGame()
+      const game = await store.createGame(resolvedTeamNames)
       logger.info('Game created', { joinCode: game.joinCode, hasHost: false })
       res.set('Location', `/api/games/${game.joinCode}`)
       res.status(201).json({ joinCode: game.joinCode })
     } catch (err) {
       next(err)
     }
+  })
+
+  // GET /team-names — returns a random team name preview (no game created)
+  // Must be registered before /:joinCode to avoid 'team-names' being treated as a join code
+  router.get('/team-names', (_req, res) => {
+    res.json(store.getTeamNamePreview())
   })
 
   // GET /:joinCode — fetch game state (players grouped by team)
