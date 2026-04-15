@@ -29,7 +29,6 @@ export function useGameState(joinCode: string | undefined) {
     }
     es.onerror = (event) => {
       console.warn(`[game] SSE connection error for game ${joinCode}`, event)
-      es.close()
     }
     return () => es.close()
   }, [joinCode])

@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { type Game, type GameSettings, type Player, type Team, type Word } from '@wordfetti/shared'
-import type { GameStore } from './GameStore.js'
+import type { GameStore, GameStoreStats } from './GameStore.js'
 import type { GameConfig } from '../config.js'
 import { generateJoinCode } from './joinCode.js'
 import { pickTeamNames } from '../teamNames.js'
@@ -8,6 +8,8 @@ import { AppError } from '../errors.js'
 import { logger } from '../logger.js'
 
 const MAX_JOIN_CODE_ATTEMPTS = 10
+const STALE_GAME_TTL_MS = 8 * 60 * 60 * 1000
+const CLEANUP_INTERVAL_MS = 60 * 60 * 1000
 
 export type InternalGame = Game & {
   hat: Word[]
@@ -15,6 +17,8 @@ export type InternalGame = Game & {
   skippedThisTurn: string[]  // word IDs skipped this turn
   currentWordId?: string     // ID of the word currently being described
   clueGiverIndices: Record<Team, number>  // next index to use per team; advanced at endTurn, not readyTurn
+  createdAt: string
+  updatedAt: string
 }
 
 function shuffle<T>(arr: T[]): T[] {
@@ -30,14 +34,94 @@ export class InMemoryGameStore implements GameStore {
   private readonly games = new Map<string, InternalGame>()
   private readonly subscribers = new Map<string, Set<(game: Game) => void>>()
   private readonly words = new Map<string, Word[]>()
+  private lastCleanupAt: string | null = null
+  private lastCleanupRemovedCount = 0
 
   constructor(
     private readonly config: GameConfig,
     private readonly teamNamesPool: string[] = ['Team 1', 'Team 2'],
-  ) {}
+  ) {
+    const cleanupTimer = setInterval(() => {
+      this.cleanupStaleGames()
+    }, CLEANUP_INTERVAL_MS)
+    cleanupTimer.unref()
+  }
 
   getTeamNamePreview(): { team1: string; team2: string } {
     return pickTeamNames(this.teamNamesPool)
+  }
+
+  getStats(): GameStoreStats {
+    let words = 0
+    for (const playerWords of this.words.values()) {
+      words += playerWords.length
+    }
+
+    let subscribers = 0
+    for (const gameSubscribers of this.subscribers.values()) {
+      subscribers += gameSubscribers.size
+    }
+
+    return {
+      games: this.games.size,
+      words,
+      subscribers,
+      lastCleanupAt: this.lastCleanupAt,
+      lastCleanupRemovedCount: this.lastCleanupRemovedCount,
+    }
+  }
+
+  private touchGame(game: InternalGame): void {
+    game.updatedAt = new Date().toISOString()
+  }
+
+  private notifySubscribers(joinCode: string, game: InternalGame): Game {
+    this.touchGame(game)
+    const snapshot = { ...game, players: [...game.players] }
+    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
+    return snapshot
+  }
+
+  private removeGame(joinCode: string, reason: 'stale'): void {
+    this.games.delete(joinCode)
+    this.subscribers.delete(joinCode)
+
+    for (const key of this.words.keys()) {
+      if (key.startsWith(`${joinCode}:`)) {
+        this.words.delete(key)
+      }
+    }
+
+    logger.info('Game removed from in-memory store', {
+      joinCode,
+      reason,
+      ...this.getStats(),
+    })
+  }
+
+  private cleanupStaleGames(): void {
+    const now = Date.now()
+    const removedJoinCodes: string[] = []
+
+    for (const [joinCode, game] of this.games.entries()) {
+      const updatedAt = Date.parse(game.updatedAt)
+      if (Number.isNaN(updatedAt) || now - updatedAt < STALE_GAME_TTL_MS) {
+        continue
+      }
+
+      removedJoinCodes.push(joinCode)
+      this.removeGame(joinCode, 'stale')
+    }
+
+    this.lastCleanupAt = new Date().toISOString()
+    this.lastCleanupRemovedCount = removedJoinCodes.length
+
+    if (removedJoinCodes.length > 0) {
+      logger.info('Stale game cleanup completed', {
+        removedGames: removedJoinCodes,
+        ...this.getStats(),
+      })
+    }
   }
 
   async createGame(teamNames?: { team1: string; team2: string }): Promise<Game> {
@@ -51,9 +135,12 @@ export class InMemoryGameStore implements GameStore {
       attempts++
     } while (this.games.has(joinCode))
 
+    const now = new Date().toISOString()
     const game: InternalGame = {
       id: randomUUID(),
       joinCode,
+      createdAt: now,
+      updatedAt: now,
       status: 'lobby',
       players: [],
       teamNames: teamNames ?? pickTeamNames(this.teamNamesPool),
@@ -67,6 +154,7 @@ export class InMemoryGameStore implements GameStore {
       clueGiverIndices: { 1: 0, 2: 0 },
     }
     this.games.set(joinCode, game)
+    logger.info('Game added to in-memory store', { joinCode, ...this.getStats() })
     return { ...game, players: [...game.players] }
   }
 
@@ -92,8 +180,7 @@ export class InMemoryGameStore implements GameStore {
     if (game.status !== 'lobby') throw new AppError('GAME_IN_PROGRESS', 'Game has already started')
     const player: Player = { id: randomUUID(), name, team, wordCount: 0 }
     game.players.push(player)
-    const snapshot = { ...game, players: [...game.players] }
-    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
+    this.notifySubscribers(joinCode, game)
     return { ...player }
   }
 
@@ -131,8 +218,7 @@ export class InMemoryGameStore implements GameStore {
       } as Record<Team, number>,
     })
 
-    const snapshot = { ...game, players: [...game.players] }
-    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
+    const snapshot = this.notifySubscribers(joinCode, game)
     return snapshot
   }
 
@@ -200,8 +286,7 @@ export class InMemoryGameStore implements GameStore {
       hat: game.hat.map((w) => w.text),
     })
 
-    const snapshot = { ...game, players: [...game.players] }
-    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
+    const snapshot = this.notifySubscribers(joinCode, game)
     return snapshot
   }
 
@@ -222,8 +307,7 @@ export class InMemoryGameStore implements GameStore {
         turnPhase: undefined,
         turnStartedAt: undefined,
       })
-      const snapshot = { ...game, players: [...game.players] }
-      this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
+      const snapshot = this.notifySubscribers(joinCode, game)
       return snapshot
     }
 
@@ -256,8 +340,7 @@ export class InMemoryGameStore implements GameStore {
 
     logger.info('Turn ended', { joinCode, newActiveTeam: newTeam, nextClueGiver: nextClueGiver.name })
 
-    const snapshot = { ...game, players: [...game.players] }
-    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
+    const snapshot = this.notifySubscribers(joinCode, game)
     return snapshot
   }
 
@@ -292,8 +375,7 @@ export class InMemoryGameStore implements GameStore {
 
     logger.info('Round advanced', { joinCode, round: game.round })
 
-    const snapshot = { ...game, players: [...game.players] }
-    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
+    const snapshot = this.notifySubscribers(joinCode, game)
     return snapshot
   }
 
@@ -342,8 +424,7 @@ export class InMemoryGameStore implements GameStore {
       })
     }
 
-    const snapshot = { ...game, players: [...game.players] }
-    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
+    const snapshot = this.notifySubscribers(joinCode, game)
     return snapshot
   }
 
@@ -372,8 +453,7 @@ export class InMemoryGameStore implements GameStore {
       guessedThisTurn: game.guessedThisTurn,
     })
 
-    const snapshot = { ...game, players: [...game.players] }
-    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
+    const snapshot = this.notifySubscribers(joinCode, game)
     return snapshot
   }
 
@@ -391,8 +471,7 @@ export class InMemoryGameStore implements GameStore {
     const word: Word = { id: randomUUID(), text: text.trim() }
     this.words.set(key, [...playerWords, word])
     player.wordCount = playerWords.length + 1
-    const snapshot = { ...game, players: [...game.players] }
-    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
+    this.notifySubscribers(joinCode, game)
     return { ...word }
   }
 
@@ -416,8 +495,7 @@ export class InMemoryGameStore implements GameStore {
     if (wordIndex === -1) throw new AppError('NOT_FOUND', 'Word not found')
     this.words.set(key, playerWords.filter((w) => w.id !== wordId))
     player.wordCount = playerWords.length - 1
-    const snapshot = { ...game, players: [...game.players] }
-    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
+    this.notifySubscribers(joinCode, game)
   }
 
   async updateSettings(joinCode: string, playerId: string, patch: Partial<GameSettings>): Promise<Game> {
@@ -437,8 +515,7 @@ export class InMemoryGameStore implements GameStore {
     }
 
     game.settings = { ...game.settings, ...patch }
-    const snapshot = { ...game, settings: { ...game.settings }, players: [...game.players] }
-    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
+    const snapshot = this.notifySubscribers(joinCode, game)
     return snapshot
   }
 
@@ -461,8 +538,7 @@ export class InMemoryGameStore implements GameStore {
       ? { team1: trimmed, team2: game.teamNames.team2 }
       : { team1: game.teamNames.team1, team2: trimmed }
 
-    const snapshot = { ...game, teamNames: { ...game.teamNames }, players: [...game.players] }
-    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
+    const snapshot = this.notifySubscribers(joinCode, game)
     return snapshot
   }
 }

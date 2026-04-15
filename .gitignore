@@ -144,3 +144,6 @@ vite.config.ts.timestamp-*
 
 # Claude
 .claude/settings.local.json
+
+# Other
+docker-context

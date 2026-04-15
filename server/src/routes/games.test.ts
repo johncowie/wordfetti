@@ -36,6 +36,7 @@ const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
   getWords: async () => [],
   deleteWord: async () => undefined,
   getTeamNamePreview: vi.fn().mockReturnValue(DEFAULT_TEAM_NAMES),
+  getStats: () => ({ games: 0, words: 0, subscribers: 0, lastCleanupAt: null, lastCleanupRemovedCount: 0 }),
   updateSettings: vi.fn(),
   updateTeamName: vi.fn(),
   ...overrides,

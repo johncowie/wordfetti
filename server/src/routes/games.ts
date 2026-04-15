@@ -99,9 +99,8 @@ export function createGamesRouter(store: GameStore): Router {
       res.setHeader('Content-Type', 'text/event-stream')
       res.setHeader('Cache-Control', 'no-cache')
       res.setHeader('Connection', 'keep-alive')
+      res.setHeader('X-Accel-Buffering', 'no')
       res.flushHeaders()
-
-      logger.info('SSE client connected', { joinCode })
 
       // Subscribe BEFORE fetching the snapshot so any player join that occurs
       // in the gap between the two store calls is not silently missed.
@@ -109,14 +108,21 @@ export function createGamesRouter(store: GameStore): Router {
         res.write(`data: ${JSON.stringify(toPublicGame(updatedGame))}\n\n`)
       })
 
+      logger.info('SSE client connected', { joinCode, subscribers: store.getStats().subscribers })
+
       // Fetch a fresh snapshot after subscribing; any concurrent join is now
       // either captured by the callback above or already in this snapshot.
       const snapshot = (await store.getGameByJoinCode(joinCode))!
       res.write(`data: ${JSON.stringify(toPublicGame(snapshot))}\n\n`)
 
+      const heartbeat = setInterval(() => {
+        res.write(': keepalive\n\n')
+      }, 25_000)
+
       req.on('close', () => {
+        clearInterval(heartbeat)
         unsubscribe()
-        logger.info('SSE client disconnected', { joinCode })
+        logger.info('SSE client disconnected', { joinCode, subscribers: store.getStats().subscribers })
       })
     } catch (err) {
       next(err)

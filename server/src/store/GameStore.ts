@@ -1,7 +1,16 @@
 import type { Game, GameSettings, Player, Team, Word } from '@wordfetti/shared'
 
+export type GameStoreStats = {
+  games: number
+  words: number
+  subscribers: number
+  lastCleanupAt: string | null
+  lastCleanupRemovedCount: number
+}
+
 export interface GameStore {
   getTeamNamePreview(): { team1: string; team2: string }
+  getStats(): GameStoreStats
   createGame(teamNames?: { team1: string; team2: string }): Promise<Game>
   createGameWithHost(name: string, team: Team, teamNames?: { team1: string; team2: string }): Promise<{ game: Game; player: Player }>
   getGameByJoinCode(joinCode: string): Promise<Game | null>
