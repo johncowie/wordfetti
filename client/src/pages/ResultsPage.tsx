@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import type { Game } from '@wordfetti/shared'
+import { loadSession } from '../session'
 
 export function ResultsPage() {
   const { joinCode } = useParams<{ joinCode: string }>()
@@ -39,10 +40,14 @@ export function ResultsPage() {
   if (!game || !game.scores) return <p className="text-center mt-8">Loading results...</p>
 
   const { team1, team2 } = game.scores
-  const winner =
-    team1 > team2 ? `${game.teamNames.team1} wins!`
-    : team2 > team1 ? `${game.teamNames.team2} wins!`
-    : "It's a draw!"
+  const session = loadSession()
+  const myTeam = session ? game.players.find((p) => p.id === session.playerId)?.team : undefined
+  const winningTeam = team1 > team2 ? 1 : team2 > team1 ? 2 : null
+  const result =
+    winningTeam === null ? "It's a draw!"
+    : myTeam === undefined ? (winningTeam === 1 ? `${game.teamNames.team1} wins!` : `${game.teamNames.team2} wins!`)
+    : myTeam === winningTeam ? 'You win!'
+    : 'Your team loses :-('
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-8 px-4">
@@ -53,7 +58,7 @@ export function ResultsPage() {
       >
         Game Over!
       </h1>
-      <p className="text-2xl font-semibold text-brand-coral">{winner}</p>
+      <p className="text-2xl font-semibold text-brand-coral">{result}</p>
       <div className="flex gap-12">
         <div className="text-center">
           <p className="text-sm font-medium text-gray-500 uppercase">{game.teamNames.team1}</p>
