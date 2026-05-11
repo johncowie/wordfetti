@@ -299,12 +299,12 @@ function SpectatorView({
       <p className="text-xl font-semibold text-gray-900">
         Watch closely —{' '}
         <span className="text-brand-teal">{clueGiverName}</span> is describing
-        for Team {team}!
+        for {team === 1 ? game.teamNames.team1 : game.teamNames.team2}!
       </p>
       {game.scores && (
         <div className="flex justify-center gap-8 text-lg font-medium text-gray-700">
-          <span>Team 1: {game.scores.team1}</span>
-          <span>Team 2: {game.scores.team2}</span>
+          <span>{game.teamNames.team1}: {game.scores.team1}</span>
+          <span>{game.teamNames.team2}: {game.scores.team2}</span>
         </div>
       )}
       {guessed.length > 0 && (

@@ -40,8 +40,8 @@ export function ResultsPage() {
 
   const { team1, team2 } = game.scores
   const winner =
-    team1 > team2 ? 'Team 1 wins!'
-    : team2 > team1 ? 'Team 2 wins!'
+    team1 > team2 ? `${game.teamNames.team1} wins!`
+    : team2 > team1 ? `${game.teamNames.team2} wins!`
     : "It's a draw!"
 
   return (
@@ -56,12 +56,12 @@ export function ResultsPage() {
       <p className="text-2xl font-semibold text-brand-coral">{winner}</p>
       <div className="flex gap-12">
         <div className="text-center">
-          <p className="text-sm font-medium text-gray-500 uppercase">Team 1</p>
-          <p aria-label={`Team 1 score: ${team1}`} className="text-5xl font-bold text-gray-900">{team1}</p>
+          <p className="text-sm font-medium text-gray-500 uppercase">{game.teamNames.team1}</p>
+          <p aria-label={`${game.teamNames.team1} score: ${team1}`} className="text-5xl font-bold text-gray-900">{team1}</p>
         </div>
         <div className="text-center">
-          <p className="text-sm font-medium text-gray-500 uppercase">Team 2</p>
-          <p aria-label={`Team 2 score: ${team2}`} className="text-5xl font-bold text-gray-900">{team2}</p>
+          <p className="text-sm font-medium text-gray-500 uppercase">{game.teamNames.team2}</p>
+          <p aria-label={`${game.teamNames.team2} score: ${team2}`} className="text-5xl font-bold text-gray-900">{team2}</p>
         </div>
       </div>
     </main>
