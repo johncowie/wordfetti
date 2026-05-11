@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import type { Game } from '@wordfetti/shared'
 import { Logo } from '../components/Logo'
+import { TurnTimer } from '../components/TurnTimer'
 import { loadSession } from '../session'
 import { useGameState } from '../hooks/useGameState'
 
@@ -125,7 +126,7 @@ export function GamePage() {
           <WaitingView clueGiverName={clueGiver.name} />
         )}
         {!isClueGiver && game.turnPhase === 'active' && isGuesser && (
-          <GuesserView clueGiverName={clueGiver.name} />
+          <GuesserView clueGiverName={clueGiver.name} game={game} />
         )}
         {!isClueGiver && game.turnPhase === 'active' && !isGuesser && (
           <SpectatorView clueGiverName={clueGiver.name} team={clueGiver.team} game={game} />
@@ -183,10 +184,6 @@ function ClueGiverView({
     return () => clearInterval(interval)
   }, [game.turnPhase, game.turnStartedAt, joinCode, playerId])
 
-  const secondsLeft = game.turnStartedAt
-    ? Math.max(0, game.settings.turnDurationSeconds - Math.floor((Date.now() - Date.parse(game.turnStartedAt)) / 1000))
-    : game.settings.turnDurationSeconds
-
   async function callGameAction(action: 'ready' | 'guess' | 'skip') {
     setLoading(true)
     setError(null)
@@ -234,7 +231,13 @@ function ClueGiverView({
 
   return (
     <div className="mt-8 flex flex-col items-center gap-6 text-center">
-      <p className="text-sm text-gray-500">{secondsLeft}s</p>
+      {game.turnPhase === 'active' && game.turnStartedAt && (
+        <TurnTimer
+          duration={game.settings.turnDurationSeconds}
+          turnStartedAt={game.turnStartedAt}
+          label="You're giving clues"
+        />
+      )}
       <p className="text-sm font-medium uppercase tracking-wide text-gray-500">Describe this word</p>
       <p className="text-4xl font-bold text-gray-900">{game.currentWord}</p>
       {game.round && (
@@ -273,9 +276,16 @@ function WaitingView({ clueGiverName }: { clueGiverName: string }) {
   )
 }
 
-function GuesserView({ clueGiverName }: { clueGiverName: string }) {
+function GuesserView({ clueGiverName, game }: { clueGiverName: string; game: Game }) {
   return (
-    <div className="mt-8 text-center">
+    <div className="mt-8 flex flex-col items-center gap-6 text-center">
+      {game.turnStartedAt && (
+        <TurnTimer
+          duration={game.settings.turnDurationSeconds}
+          turnStartedAt={game.turnStartedAt}
+          label="Guess the word!"
+        />
+      )}
       <p className="text-xl font-semibold text-gray-900">
         Your team is guessing —{' '}
         <span className="text-brand-coral">{clueGiverName}</span> is describing!
@@ -294,12 +304,20 @@ function SpectatorView({
   game: Game
 }) {
   const guessed = game.guessedThisTurn ?? []
+  const activeTeamName = team === 1 ? game.teamNames.team1 : game.teamNames.team2
   return (
     <div className="mt-8 flex flex-col gap-6 text-center">
+      {game.turnStartedAt && (
+        <TurnTimer
+          duration={game.settings.turnDurationSeconds}
+          turnStartedAt={game.turnStartedAt}
+          label={`${activeTeamName} is playing, don't guess!`}
+        />
+      )}
       <p className="text-xl font-semibold text-gray-900">
         Watch closely —{' '}
         <span className="text-brand-teal">{clueGiverName}</span> is describing
-        for {team === 1 ? game.teamNames.team1 : game.teamNames.team2}!
+        for {activeTeamName}!
       </p>
       {game.scores && (
         <div className="flex justify-center gap-8 text-lg font-medium text-gray-700">
