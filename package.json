@@ -7,9 +7,13 @@
     "build": "pnpm --filter shared build && pnpm --filter server build && pnpm --filter client build",
     "test": "pnpm --filter server test",
     "typecheck": "pnpm --filter shared typecheck && pnpm --filter server typecheck && pnpm --filter client typecheck",
-    "check": "pnpm typecheck && pnpm test && pnpm build"
+    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "zombie": "tsx scripts/test-driver.ts"
   },
   "devDependencies": {
-    "concurrently": "^9.0.0"
+    "@types/eventsource": "^3.0.0",
+    "concurrently": "^9.0.0",
+    "eventsource": "^4.1.0",
+    "tsx": "^4.0.0"
   }
 }
