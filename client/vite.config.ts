@@ -14,5 +14,7 @@ export default defineConfig({
     proxy: {
       '/api': process.env.VITE_API_URL ?? 'http://localhost:3000',
     },
+    allowedHosts: ['beast.home']
+
   },
 })
