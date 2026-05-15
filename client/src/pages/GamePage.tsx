@@ -7,9 +7,9 @@ import { loadSession } from '../session'
 import { useGameState } from '../hooks/useGameState'
 
 function roundRuleText(round: 1 | 2 | 3): string {
-  if (round === 1) return 'Describe using anything — charades style!'
-  if (round === 2) return 'One word only!'
-  return 'Mime — no words or sounds!'
+  if (round === 1) return 'Describe the concept by saying anything except the word itself! No Rhymes, "starts with _", or other obvious cheats.'
+  if (round === 2) return 'Charades! Act out the cooncept to get people to guess the word or phrase without saying anything or making any noises.'
+  return 'One word only - use one word to get the players to guess the correct answer'
 }
 
 export function GamePage() {
