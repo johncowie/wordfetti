@@ -34,6 +34,7 @@ const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
   } as any),
   addWord: async () => ({ id: 'w1', text: 'banana' }),
   getWords: async () => [],
+  getGameWords: async () => ({ wordsBySubmitter: [] }),
   deleteWord: async () => undefined,
   getTeamNamePreview: vi.fn().mockReturnValue(DEFAULT_TEAM_NAMES),
   getStats: () => ({ games: 0, words: 0, subscribers: 0, lastCleanupAt: null, lastCleanupRemovedCount: 0 }),

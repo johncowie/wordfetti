@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { type Game, type GameSettings, type Player, type Team, type Word } from '@wordfetti/shared'
+import { type Game, type GameSettings, type GameStats, type Player, type Team, type Word } from '@wordfetti/shared'
 import type { GameStore, GameStoreStats } from './GameStore.js'
 import type { GameConfig } from '../config.js'
 import { generateJoinCode } from './joinCode.js'
@@ -486,6 +486,32 @@ export class InMemoryGameStore implements GameStore {
     const player = game.players.find((p) => p.id === playerId)
     if (!player) throw new AppError('FORBIDDEN', 'Player not in game')
     return [...(this.words.get(`${joinCode}:${playerId}`) ?? [])]
+  }
+
+  async getGameWords(joinCode: string): Promise<GameStats> {
+    const game = this.games.get(joinCode)
+    if (!game) throw new AppError('NOT_FOUND', 'Game not found')
+
+    const playerNames = new Map(game.players.map((p) => [p.id, p.name]))
+    const prefix = `${joinCode}:`
+    const grouped = new Map<string, string[]>()
+
+    for (const [key, words] of this.words.entries()) {
+      if (!key.startsWith(prefix)) continue
+      const playerId = key.slice(prefix.length)
+      const name = playerNames.get(playerId)
+      if (!name) continue
+      grouped.set(name, words.map((w) => w.text))
+    }
+
+    const wordsBySubmitter = [...grouped.entries()]
+      .map(([submitterName, words]) => ({
+        submitterName,
+        words: [...words].sort((a, b) => a.localeCompare(b)),
+      }))
+      .sort((a, b) => a.submitterName.localeCompare(b.submitterName))
+
+    return { wordsBySubmitter }
   }
 
   async deleteWord(joinCode: string, playerId: string, wordId: string): Promise<void> {

@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import rateLimit from 'express-rate-limit'
-import type { Game, GameSettings } from '@wordfetti/shared'
+import type { Game, GameSettings, GameStats } from '@wordfetti/shared'
 import { type Team } from '@wordfetti/shared'
 import type { GameStore } from '../store/GameStore.js'
 import { AppError } from '../errors.js'
@@ -206,6 +206,20 @@ export function createGamesRouter(store: GameStore): Router {
       }
       if (err instanceof AppError && err.code === 'FORBIDDEN') {
         return res.status(403).json({ error: 'Player not in game' })
+      }
+      next(err)
+    }
+  })
+
+  // GET /:joinCode/stats — all words grouped by submitter for the post-game stats page
+  router.get('/:joinCode/stats', async (req, res, next) => {
+    try {
+      const joinCode = req.params.joinCode.toUpperCase()
+      const stats = await store.getGameWords(joinCode)
+      return res.json(stats)
+    } catch (err: unknown) {
+      if (err instanceof AppError && err.code === 'NOT_FOUND') {
+        return res.status(404).json({ error: 'Game not found' })
       }
       next(err)
     }

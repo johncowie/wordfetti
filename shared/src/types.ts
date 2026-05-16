@@ -10,6 +10,15 @@ export type Word = {
   text: string
 }
 
+export type SubmitterWords = {
+  submitterName: string
+  words: string[]
+}
+
+export type GameStats = {
+  wordsBySubmitter: SubmitterWords[]
+}
+
 export type Player = {
   id: string
   name: string

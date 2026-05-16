@@ -8,6 +8,7 @@ import { LobbyPage } from './pages/LobbyPage'
 import { WordEntryPage } from './pages/WordEntryPage'
 import { GamePage } from './pages/GamePage'
 import { ResultsPage } from './pages/ResultsPage'
+import { StatsPage } from './pages/StatsPage'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -21,6 +22,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <Route path="/lobby/:joinCode/words" element={<WordEntryPage />} />
         <Route path="/game/:joinCode" element={<GamePage />} />
         <Route path="/game/:joinCode/results" element={<ResultsPage />} />
+        <Route path="/game/:joinCode/stats" element={<StatsPage />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>,

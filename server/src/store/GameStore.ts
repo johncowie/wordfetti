@@ -1,4 +1,4 @@
-import type { Game, GameSettings, Player, Team, Word } from '@wordfetti/shared'
+import type { Game, GameSettings, GameStats, Player, Team, Word } from '@wordfetti/shared'
 
 export type GameStoreStats = {
   games: number
@@ -24,6 +24,7 @@ export interface GameStore {
   skipWord(joinCode: string, playerId: string): Promise<Game>
   addWord(joinCode: string, playerId: string, text: string): Promise<Word>
   getWords(joinCode: string, playerId: string): Promise<Word[]>
+  getGameWords(joinCode: string): Promise<GameStats>
   deleteWord(joinCode: string, playerId: string, wordId: string): Promise<void>
   updateSettings(joinCode: string, playerId: string, patch: Partial<GameSettings>): Promise<Game>
   updateTeamName(joinCode: string, playerId: string, team: 1 | 2, name: string): Promise<Game>

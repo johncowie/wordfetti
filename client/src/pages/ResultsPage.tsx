@@ -69,6 +69,12 @@ export function ResultsPage() {
           <p aria-label={`${game.teamNames.team2} score: ${team2}`} className="text-5xl font-bold text-gray-900">{team2}</p>
         </div>
       </div>
+      <button
+        onClick={() => navigate(`/game/${joinCode}/stats`)}
+        className="rounded-xl bg-brand-coral px-8 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+      >
+        View stats
+      </button>
     </main>
   )
 }
