@@ -354,16 +354,21 @@ export class InMemoryGameStore implements GameStore {
     // Use the shared shuffle helper — no inline duplication
     const shuffledHat = shuffle(game.originalWords)
 
-    // Restore currentClueGiverId from preserved indices — guessWord cleared it when the hat emptied.
-    // clueGiverIndices and activeTeam are preserved so rotation continues from where round 1 left off.
-    const teamPlayers = game.players.filter((p) => p.team === game.activeTeam)
-    const nextClueGiver = teamPlayers[game.clueGiverIndices[game.activeTeam!] % teamPlayers.length]
+    // The round ended mid-turn (guessWord drains the hat without calling endTurn), so activeTeam
+    // is still the team that gave the last clue. Mirror endTurn: flip to the OTHER team and
+    // pre-advance that team's index so the rotation continues without repeating a player.
+    const newActiveTeam: 1 | 2 = game.activeTeam === 1 ? 2 : 1
+    const teamPlayers = game.players.filter((p) => p.team === newActiveTeam)
+    const nextIndex = game.clueGiverIndices[newActiveTeam]
+    const nextClueGiver = teamPlayers[nextIndex % teamPlayers.length]
+    game.clueGiverIndices[newActiveTeam] = (nextIndex + 1) % teamPlayers.length
 
     Object.assign(game, {
       round: (game.round === 1 ? 2 : 3) as 1 | 2 | 3,
       status: 'in_progress',
       hat: shuffledHat,
       turnPhase: 'ready',
+      activeTeam: newActiveTeam,
       currentClueGiverId: nextClueGiver.id,
       currentWord: undefined,
       currentWordId: undefined,
@@ -371,7 +376,7 @@ export class InMemoryGameStore implements GameStore {
       guessedThisTurn: [],     // clear stale data from round 1's last turn
       skippedThisTurn: [],
     })
-    // clueGiverIndices and activeTeam are unchanged — rotation picks up where round 1 left off
+    // clueGiverIndices[newActiveTeam] advanced above; inactive team's index unchanged
 
     logger.info('Round advanced', { joinCode, round: game.round })
 

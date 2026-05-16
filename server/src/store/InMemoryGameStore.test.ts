@@ -814,28 +814,34 @@ describe('advanceRound', () => {
     expect(hatIds).toHaveLength(originalIds.length)
   })
 
-  it('restores currentClueGiverId from preserved activeTeam + clueGiverIndices', async () => {
+  it('assigns first clue giver of new round from the OTHER team (strict alternation)', async () => {
     const { store, joinCode, hostId } = await setupBetweenRoundsGame()
     const internalGame = store['games'].get(joinCode) as InternalGame
-    const expectedTeam = internalGame.activeTeam!
-    const expectedIndex = internalGame.clueGiverIndices[expectedTeam]
-    const teamPlayers = internalGame.players.filter((p) => p.team === expectedTeam)
+    const teamThatEndedRound1 = internalGame.activeTeam as 1 | 2
+    const teamForRound2: 1 | 2 = teamThatEndedRound1 === 1 ? 2 : 1
+    const expectedIndex = internalGame.clueGiverIndices[teamForRound2]
+    const teamPlayers = internalGame.players.filter((p) => p.team === teamForRound2)
     const expectedClueGiver = teamPlayers[expectedIndex % teamPlayers.length]
 
     const after = await store.advanceRound(joinCode, hostId)
+    expect(after.activeTeam).toBe(teamForRound2)
     expect(after.currentClueGiverId).toBe(expectedClueGiver.id)
   })
 
-  it('preserves clueGiverIndices and activeTeam from round 1', async () => {
+  it('flips activeTeam, advances the new team index, and preserves the other team index', async () => {
     const { store, joinCode, hostId } = await setupBetweenRoundsGame()
     const before = store['games'].get(joinCode) as InternalGame
-    const activeTeamBefore = before.activeTeam
-    const indicesBefore = { ...before.clueGiverIndices }
+    const oldActiveTeam = before.activeTeam as 1 | 2
+    const newActiveTeam: 1 | 2 = oldActiveTeam === 1 ? 2 : 1
+    const newTeamPlayers = before.players.filter((p) => p.team === newActiveTeam)
+    const expectedNewIndex = (before.clueGiverIndices[newActiveTeam] + 1) % newTeamPlayers.length
 
     await store.advanceRound(joinCode, hostId)
     const after = store['games'].get(joinCode) as InternalGame
-    expect(after.activeTeam).toBe(activeTeamBefore)
-    expect(after.clueGiverIndices).toEqual(indicesBefore)
+
+    expect(after.activeTeam).toBe(newActiveTeam)
+    expect(after.clueGiverIndices[newActiveTeam]).toBe(expectedNewIndex)
+    expect(after.clueGiverIndices[oldActiveTeam]).toBe(before.clueGiverIndices[oldActiveTeam])
   })
 
   it('clears guessedThisTurn and skippedThisTurn', async () => {
@@ -876,6 +882,87 @@ describe('advanceRound', () => {
     expect(updates).toHaveLength(1)
     expect(updates[0].round).toBe(2)
     expect(updates[0].status).toBe('in_progress')
+  })
+
+  it('round 2 rotation: correct player sequence across multiple turns', async () => {
+    // Round 1: only the starting clue giver goes (hat drained without endTurn)
+    // Round 2 should: start with the OTHER team, continue round-robin without repeating
+    const { store, joinCode, hostId } = await setupBetweenRoundsGame()
+    const internal = store['games'].get(joinCode) as InternalGame
+    const startingTeam = internal.activeTeam as 1 | 2
+    const otherTeam: 1 | 2 = startingTeam === 1 ? 2 : 1
+    const startingTeamPlayers = internal.players.filter((p) => p.team === startingTeam)
+    const otherTeamPlayers = internal.players.filter((p) => p.team === otherTeam)
+
+    // Round 2 must start with the OTHER team (team alternation rule)
+    const round2 = await store.advanceRound(joinCode, hostId)
+    expect(round2.activeTeam).toBe(otherTeam)
+    expect(round2.currentClueGiverId).toBe(otherTeamPlayers[0].id)
+
+    // Turn 1 of R2: otherTeam[0] → startingTeam[1] (not [0] — Bug 2 regression)
+    await store.readyTurn(joinCode, otherTeamPlayers[0].id)
+    const r2t1 = await store.endTurn(joinCode, otherTeamPlayers[0].id)
+    expect(r2t1.activeTeam).toBe(startingTeam)
+    expect(r2t1.currentClueGiverId).toBe(startingTeamPlayers[1].id)
+
+    // Turn 2 of R2: startingTeam[1] → otherTeam[1]
+    await store.readyTurn(joinCode, startingTeamPlayers[1].id)
+    const r2t2 = await store.endTurn(joinCode, startingTeamPlayers[1].id)
+    expect(r2t2.activeTeam).toBe(otherTeam)
+    expect(r2t2.currentClueGiverId).toBe(otherTeamPlayers[1].id)
+
+    // Turn 3 of R2: otherTeam[1] → startingTeam[0] (wraps back to [0])
+    await store.readyTurn(joinCode, otherTeamPlayers[1].id)
+    const r2t3 = await store.endTurn(joinCode, otherTeamPlayers[1].id)
+    expect(r2t3.activeTeam).toBe(startingTeam)
+    expect(r2t3.currentClueGiverId).toBe(startingTeamPlayers[0].id)
+  })
+
+  it('cross-round rotation continues from mid-rotation state when round ended mid-turn', async () => {
+    // Round 1: A[0] goes, then B[0] goes, then A[1] starts but round ends mid-turn.
+    // Round 2 should: B[1], A[0], B[0], A[1], ...
+    const { store, joinCode } = await setupReadyGame()
+    const started = await store.startGame(joinCode)
+    const hostId = started.hostId!
+    const startingTeam = started.activeTeam as 1 | 2
+    const otherTeam: 1 | 2 = startingTeam === 1 ? 2 : 1
+    const startingTeamPlayers = started.players.filter((p) => p.team === startingTeam)
+    const otherTeamPlayers = started.players.filter((p) => p.team === otherTeam)
+
+    // R1 Turn 1: A[0]
+    await store.readyTurn(joinCode, startingTeamPlayers[0].id)
+    await store.endTurn(joinCode, startingTeamPlayers[0].id)
+    // R1 Turn 2: B[0]
+    await store.readyTurn(joinCode, otherTeamPlayers[0].id)
+    await store.endTurn(joinCode, otherTeamPlayers[0].id)
+    // R1 Turn 3: A[1] starts, then round ends mid-turn (simulate hat emptying)
+    await store.readyTurn(joinCode, startingTeamPlayers[1].id)
+    const internal = store['games'].get(joinCode) as InternalGame
+    Object.assign(internal, {
+      status: 'between_rounds',
+      currentClueGiverId: undefined,
+      turnPhase: undefined,
+      turnStartedAt: undefined,
+      currentWord: undefined,
+      currentWordId: undefined,
+    })
+
+    // advanceRound: should flip to B, pick B[1] (next in B's rotation), advance to 0
+    const round2 = await store.advanceRound(joinCode, hostId)
+    expect(round2.activeTeam).toBe(otherTeam)
+    expect(round2.currentClueGiverId).toBe(otherTeamPlayers[1].id)
+
+    // R2 Turn 1: B[1] → A[0] (A's index wraps back to 0)
+    await store.readyTurn(joinCode, otherTeamPlayers[1].id)
+    const r2t1 = await store.endTurn(joinCode, otherTeamPlayers[1].id)
+    expect(r2t1.activeTeam).toBe(startingTeam)
+    expect(r2t1.currentClueGiverId).toBe(startingTeamPlayers[0].id)
+
+    // R2 Turn 2: A[0] → B[0]
+    await store.readyTurn(joinCode, startingTeamPlayers[0].id)
+    const r2t2 = await store.endTurn(joinCode, startingTeamPlayers[0].id)
+    expect(r2t2.activeTeam).toBe(otherTeam)
+    expect(r2t2.currentClueGiverId).toBe(otherTeamPlayers[0].id)
   })
 })
 
