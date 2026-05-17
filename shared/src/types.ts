@@ -15,8 +15,14 @@ export type SubmitterWords = {
   words: string[]
 }
 
+export type BestClueGiver = {
+  names: string[]
+  clueCount: number
+}
+
 export type GameStats = {
   wordsBySubmitter: SubmitterWords[]
+  bestClueGiver: BestClueGiver | null
 }
 
 export type Player = {

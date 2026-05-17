@@ -6,8 +6,8 @@ import type { GameStore } from '../store/GameStore.js'
 import { AppError } from '../errors.js'
 import { logger } from '../logger.js'
 
-function toPublicGame(game: Game & { hat?: unknown; skippedThisTurn?: unknown; currentWordId?: unknown; clueGiverIndices?: unknown; originalWords?: unknown }) {
-  const { hat: _hat, skippedThisTurn: _skipped, currentWordId: _id, clueGiverIndices: _ci, originalWords: _ow, ...publicGame } = game
+function toPublicGame(game: Game & { hat?: unknown; skippedThisTurn?: unknown; currentWordId?: unknown; clueGiverIndices?: unknown; originalWords?: unknown; clueGiverStats?: unknown }) {
+  const { hat: _hat, skippedThisTurn: _skipped, currentWordId: _id, clueGiverIndices: _ci, originalWords: _ow, clueGiverStats: _cgs, ...publicGame } = game
   return publicGame
 }
 

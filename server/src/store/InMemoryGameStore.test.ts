@@ -1024,6 +1024,115 @@ describe('updateSettings', () => {
   })
 })
 
+describe('clueGiverStats', () => {
+  it('increments the clue giver count on each successful guess', async () => {
+    const { store, joinCode, game } = await setupStartedGame()
+    const clueGiverId = game.currentClueGiverId!
+    await store.readyTurn(joinCode, clueGiverId)
+    await store.guessWord(joinCode, clueGiverId)
+
+    const internal = store['games'].get(joinCode) as InternalGame
+    expect(internal.clueGiverStats[clueGiverId]).toBe(1)
+
+    await store.guessWord(joinCode, clueGiverId)
+    expect(internal.clueGiverStats[clueGiverId]).toBe(2)
+  })
+
+  it('persists the count across endTurn — does not reset', async () => {
+    const { store, joinCode, game } = await setupStartedGame()
+    const clueGiverId = game.currentClueGiverId!
+    await store.readyTurn(joinCode, clueGiverId)
+    await store.guessWord(joinCode, clueGiverId)
+    await store.guessWord(joinCode, clueGiverId)
+    await store.endTurn(joinCode, clueGiverId)
+
+    const internal = store['games'].get(joinCode) as InternalGame
+    expect(internal.clueGiverStats[clueGiverId]).toBe(2)
+  })
+
+  it('accumulates across multiple rounds — count from round 1 survives advanceRound', async () => {
+    const { store, joinCode, game } = await setupStartedGame()
+    const hostId = game.hostId!
+    const clueGiverId = game.currentClueGiverId!
+
+    await store.readyTurn(joinCode, clueGiverId)
+    await store.guessWord(joinCode, clueGiverId)
+    await store.guessWord(joinCode, clueGiverId)
+
+    const internalBefore = store['games'].get(joinCode) as InternalGame
+    const r1Count = internalBefore.clueGiverStats[clueGiverId]
+    expect(r1Count).toBe(2)
+
+    // Force game into between_rounds state (simulates hat drain without calling endTurn)
+    Object.assign(internalBefore, {
+      status: 'between_rounds',
+      currentClueGiverId: undefined,
+      turnPhase: undefined,
+      turnStartedAt: undefined,
+      currentWord: undefined,
+      currentWordId: undefined,
+    })
+
+    await store.advanceRound(joinCode, hostId)
+
+    const internalAfter = store['games'].get(joinCode) as InternalGame
+    expect(internalAfter.clueGiverStats[clueGiverId]).toBe(r1Count)
+  })
+})
+
+describe('getGameWords — bestClueGiver', () => {
+  it('returns null when no guesses have been made', async () => {
+    const { store, joinCode } = await setupStartedGame()
+    const stats = await store.getGameWords(joinCode)
+    expect(stats.bestClueGiver).toBeNull()
+  })
+
+  it('returns the player with the most guesses as bestClueGiver', async () => {
+    const { store, joinCode, game } = await setupStartedGame()
+    const clueGiverId = game.currentClueGiverId!
+    const clueGiverName = game.players.find((p) => p.id === clueGiverId)!.name
+
+    await store.readyTurn(joinCode, clueGiverId)
+    await store.guessWord(joinCode, clueGiverId)
+    await store.guessWord(joinCode, clueGiverId)
+    await store.guessWord(joinCode, clueGiverId)
+
+    const stats = await store.getGameWords(joinCode)
+    expect(stats.bestClueGiver).toEqual({ names: [clueGiverName], clueCount: 3 })
+  })
+
+  it('returns all tied players sorted alphabetically', async () => {
+    const { store, joinCode, game } = await setupStartedGame()
+    const firstClueGiverId = game.currentClueGiverId!
+
+    await store.readyTurn(joinCode, firstClueGiverId)
+    await store.guessWord(joinCode, firstClueGiverId)
+    await store.endTurn(joinCode, firstClueGiverId)
+
+    const afterFirst = await store.getGameByJoinCode(joinCode)
+    const secondClueGiverId = afterFirst!.currentClueGiverId!
+    await store.readyTurn(joinCode, secondClueGiverId)
+    await store.guessWord(joinCode, secondClueGiverId)
+
+    const stats = await store.getGameWords(joinCode)
+    expect(stats.bestClueGiver!.clueCount).toBe(1)
+    expect(stats.bestClueGiver!.names).toHaveLength(2)
+    const names = stats.bestClueGiver!.names
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)))
+  })
+
+  it('falls back to raw player ID when ID is in clueGiverStats but absent from game.players', async () => {
+    const { store, joinCode } = await setupStartedGame()
+    const internal = store['games'].get(joinCode) as InternalGame
+    const fakeId = 'non-existent-player-id'
+    internal.clueGiverStats[fakeId] = 99
+
+    const stats = await store.getGameWords(joinCode)
+    expect(stats.bestClueGiver!.names).toContain(fakeId)
+    expect(stats.bestClueGiver!.clueCount).toBe(99)
+  })
+})
+
 describe('pickTeamNames', () => {
   it('returns two distinct names from the pool', () => {
     const result = pickTeamNames(['Alpha', 'Beta', 'Gamma'])

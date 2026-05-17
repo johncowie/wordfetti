@@ -1,6 +1,21 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import type { GameStats } from '@wordfetti/shared'
+import type { BestClueGiver, GameStats } from '@wordfetti/shared'
+
+function BestClueGiverSection({ bestClueGiver }: { bestClueGiver: BestClueGiver | null }) {
+  if (!bestClueGiver) return null
+  const label = bestClueGiver.names.length === 1 ? 'Best clue giver' : 'Best clue givers'
+  const names = bestClueGiver.names.join(', ')
+  return (
+    <section className="w-full max-w-md rounded-2xl bg-brand-coral px-6 py-5 text-white shadow-md">
+      <p className="mb-1 text-xs font-semibold uppercase tracking-widest opacity-80">{label}</p>
+      <p className="text-2xl font-bold">{names}</p>
+      <p className="mt-1 text-sm opacity-80">
+        <span className="font-bold">{bestClueGiver.clueCount}</span> of their {bestClueGiver.clueCount === 1 ? 'clue was' : 'clues were'} guessed correctly
+      </p>
+    </section>
+  )
+}
 
 export function StatsPage() {
   const { joinCode } = useParams<{ joinCode: string }>()
@@ -43,27 +58,32 @@ export function StatsPage() {
     <main className="flex min-h-screen flex-col items-center gap-8 bg-brand-cream px-4 py-12">
       <h1 className="text-3xl font-bold text-gray-900">Game Stats</h1>
 
+      <BestClueGiverSection bestClueGiver={stats.bestClueGiver} />
+
       {stats.wordsBySubmitter.length === 0 ? (
         <p className="text-gray-400">No words were submitted for this game.</p>
       ) : (
-        <div className="flex w-full max-w-md flex-col gap-6">
-          {stats.wordsBySubmitter.map(({ submitterName, words }) => (
-            <section key={submitterName}>
-              <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">
-                {submitterName}
-              </h2>
-              <ul className="flex flex-col gap-2">
-                {words.map((word) => (
-                  <li
-                    key={word}
-                    className="rounded-xl bg-white px-4 py-3 text-sm text-gray-900 shadow-sm"
-                  >
-                    {word}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
+        <div className="w-full max-w-md rounded-2xl bg-brand-muted px-6 py-6">
+          <p className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-400">Words submitted</p>
+          <div className="flex flex-col gap-6">
+            {stats.wordsBySubmitter.map(({ submitterName, words }) => (
+              <section key={submitterName}>
+                <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">
+                  {submitterName}
+                </h2>
+                <ul className="flex flex-col gap-2">
+                  {words.map((word) => (
+                    <li
+                      key={word}
+                      className="rounded-xl bg-white px-4 py-3 text-sm text-gray-900 shadow-sm"
+                    >
+                      {word}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </div>
         </div>
       )}
     </main>

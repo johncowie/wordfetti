@@ -34,7 +34,7 @@ const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
   } as any),
   addWord: async () => ({ id: 'w1', text: 'banana' }),
   getWords: async () => [],
-  getGameWords: async () => ({ wordsBySubmitter: [] }),
+  getGameWords: async () => ({ wordsBySubmitter: [], bestClueGiver: null }),
   deleteWord: async () => undefined,
   getTeamNamePreview: vi.fn().mockReturnValue(DEFAULT_TEAM_NAMES),
   getStats: () => ({ games: 0, words: 0, subscribers: 0, lastCleanupAt: null, lastCleanupRemovedCount: 0 }),
@@ -1012,5 +1012,32 @@ describe('PATCH /api/games/:joinCode/team-name', () => {
     const store = mockStore({ updateTeamName: vi.fn().mockRejectedValue(new AppError('VALIDATION', 'Team name must be between 1 and 20 characters')) })
     const res = await request(buildApp(store)).patch('/ABC123/team-name').send({ playerId: hostId, team: 1, name: '' })
     expect(res.status).toBe(400)
+  })
+})
+
+describe('GET /api/games/:joinCode/stats', () => {
+  it('returns 200 with bestClueGiver in the response body', async () => {
+    const res = await request(buildApp(mockStore())).get('/ABC123/stats')
+    expect(res.status).toBe(200)
+    expect(res.body).toHaveProperty('bestClueGiver', null)
+    expect(res.body).toHaveProperty('wordsBySubmitter')
+  })
+
+  it('returns bestClueGiver with names and clueCount when provided by store', async () => {
+    const store = mockStore({
+      getGameWords: async () => ({
+        wordsBySubmitter: [],
+        bestClueGiver: { names: ['Alice'], clueCount: 5 },
+      }),
+    })
+    const res = await request(buildApp(store)).get('/ABC123/stats')
+    expect(res.status).toBe(200)
+    expect(res.body.bestClueGiver).toEqual({ names: ['Alice'], clueCount: 5 })
+  })
+
+  it('returns 404 when store throws NOT_FOUND', async () => {
+    const store = mockStore({ getGameWords: async () => { throw new AppError('NOT_FOUND', 'Game not found') } })
+    const res = await request(buildApp(store)).get('/ABC123/stats')
+    expect(res.status).toBe(404)
   })
 })

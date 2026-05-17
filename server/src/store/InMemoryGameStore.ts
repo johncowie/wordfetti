@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { type Game, type GameSettings, type GameStats, type Player, type Team, type Word } from '@wordfetti/shared'
+import { type BestClueGiver, type Game, type GameSettings, type GameStats, type Player, type Team, type Word } from '@wordfetti/shared'
 import type { GameStore, GameStoreStats } from './GameStore.js'
 import type { GameConfig } from '../config.js'
 import { generateJoinCode } from './joinCode.js'
@@ -17,6 +17,7 @@ export type InternalGame = Game & {
   skippedThisTurn: string[]  // word IDs skipped this turn
   currentWordId?: string     // ID of the word currently being described
   clueGiverIndices: Record<Team, number>  // next index to use per team; advanced at endTurn, not readyTurn
+  clueGiverStats: Record<string, number>  // playerId → total clues guessed across all turns and rounds
   createdAt: string
   updatedAt: string
 }
@@ -28,6 +29,23 @@ function shuffle<T>(arr: T[]): T[] {
     ;[result[i], result[j]] = [result[j], result[i]]
   }
   return result
+}
+
+function computeBestClueGiver(
+  stats: Record<string, number>,
+  players: Player[],
+): BestClueGiver | null {
+  const entries = Object.entries(stats)
+  if (entries.length === 0) return null
+
+  const max = Math.max(...entries.map(([, count]) => count))
+  const playerNames = new Map(players.map((p) => [p.id, p.name]))
+  const names = entries
+    .filter(([, count]) => count === max)
+    .map(([id]) => playerNames.get(id) ?? id)
+    .sort((a, b) => a.localeCompare(b))
+
+  return { names, clueCount: max }
 }
 
 export class InMemoryGameStore implements GameStore {
@@ -152,6 +170,7 @@ export class InMemoryGameStore implements GameStore {
       originalWords: [],
       skippedThisTurn: [],
       clueGiverIndices: { 1: 0, 2: 0 },
+      clueGiverStats: {},
     }
     this.games.set(joinCode, game)
     logger.info('Game added to in-memory store', { joinCode, ...this.getStats() })
@@ -210,6 +229,7 @@ export class InMemoryGameStore implements GameStore {
       turnPhase: 'ready',
       scores: { team1: 0, team2: 0 },
       skippedThisTurn: [],
+      clueGiverStats: {},
       // Index for starting team advances past player[0] (already assigned); other team starts at 0.
       // activeTeamPlayers.length is always ≥2 (route validates before calling startGame).
       clueGiverIndices: {
@@ -398,6 +418,11 @@ export class InMemoryGameStore implements GameStore {
     game.scores[game.activeTeam === 1 ? 'team1' : 'team2']++
     game.guessedThisTurn = [...(game.guessedThisTurn ?? []), currentText]
 
+    if (game.currentClueGiverId) {
+      const id = game.currentClueGiverId
+      game.clueGiverStats[id] = (game.clueGiverStats[id] ?? 0) + 1
+    }
+
     if (game.hat.length === 0) {
       const newStatus = this.resolveRoundEndStatus(game.round as 1 | 2 | 3)
       logger.debug('Word guessed — hat empty, round over', {
@@ -511,7 +536,9 @@ export class InMemoryGameStore implements GameStore {
       }))
       .sort((a, b) => a.submitterName.localeCompare(b.submitterName))
 
-    return { wordsBySubmitter }
+    const bestClueGiver = computeBestClueGiver(game.clueGiverStats, game.players)
+
+    return { wordsBySubmitter, bestClueGiver }
   }
 
   async deleteWord(joinCode: string, playerId: string, wordId: string): Promise<void> {
