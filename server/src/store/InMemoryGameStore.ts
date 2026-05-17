@@ -48,6 +48,10 @@ function computeBestClueGiver(
   return { names, clueCount: max }
 }
 
+function normaliseName(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
 export class InMemoryGameStore implements GameStore {
   private readonly games = new Map<string, InternalGame>()
   private readonly subscribers = new Map<string, Set<(game: Game) => void>>()
@@ -197,6 +201,11 @@ export class InMemoryGameStore implements GameStore {
     const game = this.games.get(joinCode)
     if (!game) throw new AppError('NOT_FOUND', 'Game not found')
     if (game.status !== 'lobby') throw new AppError('GAME_IN_PROGRESS', 'Game has already started')
+    const isDuplicate = game.players.some((p) => normaliseName(p.name) === normaliseName(name))
+    // Note: no `await` exists between this check and game.players.push below,
+    // so Node.js's single-threaded event loop guarantees the check-then-act is atomic.
+    // If an `await` is ever introduced between these two lines, a mutex will be needed.
+    if (isDuplicate) throw new AppError('NAME_TAKEN', 'That name is already taken')
     const player: Player = { id: randomUUID(), name, team, wordCount: 0 }
     game.players.push(player)
     this.notifySubscribers(joinCode, game)

@@ -14,6 +14,12 @@ export interface GameStore {
   createGame(teamNames?: { team1: string; team2: string }): Promise<Game>
   createGameWithHost(name: string, team: Team, teamNames?: { team1: string; team2: string }): Promise<{ game: Game; player: Player }>
   getGameByJoinCode(joinCode: string): Promise<Game | null>
+  /**
+   * @throws AppError('NOT_FOUND') if the game does not exist
+   * @throws AppError('GAME_IN_PROGRESS') if the game has already started
+   * @throws AppError('NAME_TAKEN') if a player with the same normalised name already exists
+   *   in the lobby (normalised = trimmed, lowercased, internal whitespace collapsed to single space)
+   */
   joinGame(joinCode: string, name: string, team: Team): Promise<Player>
   subscribe(joinCode: string, callback: (game: Game) => void): () => void
   startGame(joinCode: string): Promise<Game>

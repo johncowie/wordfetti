@@ -102,6 +102,37 @@ describe('joinGame', () => {
       code: 'GAME_IN_PROGRESS',
     })
   })
+
+  it('throws NAME_TAKEN when the normalised name matches an existing player case-insensitively', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG)
+    const { game } = await store.createGameWithHost('Alice', 1)
+    await expect(store.joinGame(game.joinCode, 'alice', 2)).rejects.toMatchObject({
+      code: 'NAME_TAKEN',
+    })
+  })
+
+  it('throws NAME_TAKEN when the name matches with differing outer whitespace', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG)
+    const { game } = await store.createGameWithHost('Alice', 1)
+    await expect(store.joinGame(game.joinCode, '  alice  ', 2)).rejects.toMatchObject({
+      code: 'NAME_TAKEN',
+    })
+  })
+
+  it('throws NAME_TAKEN when the name matches with collapsed internal whitespace', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG)
+    const { game } = await store.createGameWithHost('Alice Smith', 1)
+    await expect(store.joinGame(game.joinCode, 'alice  smith', 2)).rejects.toMatchObject({
+      code: 'NAME_TAKEN',
+    })
+  })
+
+  it('allows a genuinely different name', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG)
+    const { game } = await store.createGameWithHost('Alice', 1)
+    const player = await store.joinGame(game.joinCode, 'Bob', 2)
+    expect(player.name).toBe('Bob')
+  })
 })
 
 describe('createGameWithHost', () => {

@@ -390,10 +390,13 @@ export function createGamesRouter(store: GameStore): Router {
       res.status(201).json({ player })
     } catch (err: unknown) {
       if (err instanceof AppError && err.code === 'NOT_FOUND') {
-        return res.status(404).json({ error: 'Game not found' })
+        return res.status(404).json({ code: 'NOT_FOUND', error: 'Game not found' })
       }
       if (err instanceof AppError && err.code === 'GAME_IN_PROGRESS') {
-        return res.status(409).json({ error: 'This game has already started' })
+        return res.status(409).json({ code: 'GAME_IN_PROGRESS', error: 'This game has already started' })
+      }
+      if (err instanceof AppError && err.code === 'NAME_TAKEN') {
+        return res.status(409).json({ code: 'NAME_TAKEN', error: 'That name is already taken — please choose another.' })
       }
       next(err)
     }

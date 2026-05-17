@@ -222,7 +222,7 @@ describe('POST /api/games/:joinCode/players', () => {
     expect(res.status).toBe(404)
   })
 
-  it('returns 409 when the game has already started', async () => {
+  it('returns 409 with code GAME_IN_PROGRESS when the game has already started', async () => {
     const store = mockStore({
       joinGame: async () => { throw new AppError('GAME_IN_PROGRESS', 'Game has already started') },
     })
@@ -230,6 +230,19 @@ describe('POST /api/games/:joinCode/players', () => {
       .post('/ABC123/players')
       .send({ name: 'Alice', team: 1 })
     expect(res.status).toBe(409)
+    expect(res.body.code).toBe('GAME_IN_PROGRESS')
+    expect(res.body.error).toBe('This game has already started')
+  })
+
+  it('returns 409 with code NAME_TAKEN when the name is already taken', async () => {
+    const store = mockStore({
+      joinGame: async () => { throw new AppError('NAME_TAKEN', 'That name is already taken') },
+    })
+    const res = await request(buildApp(store))
+      .post('/ABC123/players')
+      .send({ name: 'Alice', team: 1 })
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('NAME_TAKEN')
   })
 })
 

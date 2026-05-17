@@ -51,7 +51,12 @@ export function JoinPage() {
         return
       }
       if (res.status === 409) {
-        setError('This game has already started.')
+        const data = await res.json().catch(() => ({}))
+        if (data.code === 'NAME_TAKEN') {
+          setError('That name is already taken — please choose another.')
+        } else {
+          setError('This game has already started.')
+        }
         return
       }
       if (!res.ok) throw new Error(`Unexpected response: ${res.status}`)
