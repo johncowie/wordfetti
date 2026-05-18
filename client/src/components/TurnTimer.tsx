@@ -4,12 +4,13 @@ interface TurnTimerProps {
   duration: number
   turnStartedAt: string
   label: string
+  clockOffset: number
 }
 
-export function TurnTimer({ duration, turnStartedAt, label }: TurnTimerProps) {
+export function TurnTimer({ duration, turnStartedAt, label, clockOffset }: TurnTimerProps) {
   const initialRemainingTime = Math.max(
     0,
-    duration - Math.floor((Date.now() - Date.parse(turnStartedAt)) / 1000),
+    duration - (Date.now() + clockOffset - Date.parse(turnStartedAt)) / 1000,
   )
 
   return (

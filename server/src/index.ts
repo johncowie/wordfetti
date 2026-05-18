@@ -8,6 +8,7 @@ import v8 from 'v8'
 import { DEFAULT_GAME_CONFIG } from './config.js'
 import { logger } from './logger.js'
 import { createGamesRouter } from './routes/games.js'
+import { createTimeRouter } from './routes/time.js'
 import { InMemoryGameStore } from './store/InMemoryGameStore.js'
 import { loadTeamNames } from './teamNames.js'
 
@@ -61,6 +62,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 const apiLimiter = rateLimit({ windowMs: 60_000, max: 500 })
 app.use('/api', apiLimiter)
 app.use('/api/games', createGamesRouter(store))
+app.use('/api/time', createTimeRouter())
 
 app.get('/health', (_req, res) => {
   const memoryUsage = process.memoryUsage()
