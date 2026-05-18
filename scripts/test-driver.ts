@@ -149,19 +149,36 @@ async function main() {
     console.log(`[zombie] ${name} joined team ${team} (id: ${bot.id})`)
   }
 
+  // Re-fetch game state after all bots have joined so wordsPerPlayer reflects
+  // any auto-calculation the host client triggered when the player count changed.
+  const postJoinRes = await fetch(apiUrl(''))
+  if (!postJoinRes.ok) {
+    console.error(`Failed to re-fetch game after joining: ${postJoinRes.status}`)
+    process.exit(1)
+  }
+  const currentGameSettings: Game = await postJoinRes.json()
+  const { wordsPerPlayer, turnDurationSeconds } = currentGameSettings.settings
+
   // Submit words for each bot
-  const wordsPerPlayer = initialGame.settings.wordsPerPlayer
   await Promise.all(
     Array.from(bots.values()).map(async bot => {
       for (let w = 0; w < wordsPerPlayer; w++) {
-        await post('/words', { playerId: bot.id, text: randomWord() })
+        try {
+          await post('/words', { playerId: bot.id, text: randomWord() })
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err)
+          if (msg.includes('409')) {
+            console.log(`[zombie] ${bot.name} hit word limit at word ${w + 1}, stopping`)
+            break
+          }
+          throw err
+        }
       }
-      console.log(`[zombie] ${bot.name} submitted ${wordsPerPlayer} word(s)`)
+      console.log(`[zombie] ${bot.name} submitted words`)
     })
   )
 
   // Open SSE connection and drive turns reactively
-  const { turnDurationSeconds } = initialGame.settings
   const es = new EventSource(apiUrl('/events'))
 
   es.onmessage = (event: MessageEvent) => {
