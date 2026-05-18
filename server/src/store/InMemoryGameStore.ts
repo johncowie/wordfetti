@@ -296,14 +296,29 @@ export class InMemoryGameStore implements GameStore {
     const firstWord = game.hat[0] ?? null
     if (!firstWord) throw new AppError('HAT_EMPTY', 'Hat is empty')
 
+    const turnStartedAt = new Date().toISOString()
+
     Object.assign(game, {
       turnPhase: 'active',
       currentWord: firstWord.text,
       currentWordId: firstWord.id,
       skippedThisTurn: [],
       guessedThisTurn: [],
-      turnStartedAt: new Date().toISOString(),
+      turnStartedAt,
     })
+
+    // Server-side fallback: auto-end the turn if no client calls /end-turn in time.
+    // The turnStartedAt guard prevents this from firing against a later turn that
+    // happened to reuse the same joinCode slot.
+    const { turnDurationSeconds } = game.settings
+    setTimeout(async () => {
+      const current = this.games.get(joinCode)
+      if (current?.turnPhase === 'active' && current?.turnStartedAt === turnStartedAt) {
+        await this.endTurn(joinCode, playerId).catch(() => {
+          // Client already called end-turn between the check and here — ignore.
+        })
+      }
+    }, turnDurationSeconds * 1000 + 500)
 
     const clueGiver = game.players.find((p) => p.id === playerId)
     logger.debug('Turn started', {

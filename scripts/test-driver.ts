@@ -255,8 +255,15 @@ async function driveTurn(bot: Player, turnDurationSeconds: number) {
       if (!currentGame || currentGame.currentWord === undefined || currentGame.turnPhase !== 'active') break
 
       const action = Math.random() * 100 < SKIP_CHANCE ? 'skip' : 'guess'
-      await post(`/${action}`, { playerId: bot.id })
-      console.log(`[zombie] ${bot.name} ${action}ed "${currentGame.currentWord}"`)
+      try {
+        await post(`/${action}`, { playerId: bot.id })
+        console.log(`[zombie] ${bot.name} ${action}ed "${currentGame.currentWord}"`)
+      } catch (err) {
+        // Server rejected the action (e.g. turn ended concurrently). Break cleanly
+        // so the finally block always reaches the "caught missed SSE" check below.
+        console.error(`[zombie] ${action} rejected: ${(err as Error).message}`)
+        break
+      }
 
       await sleep(TURN_DELAY)
     }
