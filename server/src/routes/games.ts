@@ -411,7 +411,7 @@ export function createGamesRouter(store: GameStore): Router {
   router.patch('/:joinCode/settings', settingsLimiter, async (req, res, next) => {
     try {
       const joinCode = req.params.joinCode.toUpperCase()
-      const { playerId, wordsPerPlayer, turnDurationSeconds } = req.body ?? {}
+      const { playerId, wordsPerPlayer, turnDurationSeconds, wordsPerPlayerManuallySet } = req.body ?? {}
 
       if (typeof playerId !== 'string' || !playerId) {
         return res.status(400).json({ error: 'playerId is required' })
@@ -431,6 +431,13 @@ export function createGamesRouter(store: GameStore): Router {
           return res.status(400).json({ error: 'turnDurationSeconds must be an integer between 5 and 600' })
         }
         patch.turnDurationSeconds = turnDurationSeconds
+      }
+
+      if (wordsPerPlayerManuallySet !== undefined) {
+        if (typeof wordsPerPlayerManuallySet !== 'boolean') {
+          return res.status(400).json({ error: 'wordsPerPlayerManuallySet must be a boolean' })
+        }
+        patch.wordsPerPlayerManuallySet = wordsPerPlayerManuallySet
       }
 
       if (Object.keys(patch).length === 0) {

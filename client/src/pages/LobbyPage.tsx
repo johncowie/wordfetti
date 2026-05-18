@@ -4,6 +4,7 @@ import type { GameSettings, Player } from '@wordfetti/shared'
 import { Logo } from '../components/Logo'
 import { loadSession } from '../session'
 import { useGameState } from '../hooks/useGameState'
+import { calculateDefaultWordsPerPlayer } from '../utils/gameSettings'
 
 export function LobbyPage() {
   const { joinCode } = useParams<{ joinCode: string }>()
@@ -146,6 +147,7 @@ export function LobbyPage() {
         {currentPlayerId && (
           <GameSettingsPanel
             settings={game.settings}
+            players={game.players}
             isHost={currentPlayerId === game.hostId}
             joinCode={joinCode!}
             playerId={currentPlayerId}
@@ -342,17 +344,19 @@ function PlayerRow({ player, isCurrentPlayer, wordsPerPlayer }: PlayerRowProps) 
 
 type GameSettingsPanelProps = {
   settings: GameSettings
+  players: Player[]
   isHost: boolean
   joinCode: string
   playerId: string
   onValidityChange: (valid: boolean) => void
 }
 
-function GameSettingsPanel({ settings, isHost, joinCode, playerId, onValidityChange }: GameSettingsPanelProps) {
+function GameSettingsPanel({ settings, players, isHost, joinCode, playerId, onValidityChange }: GameSettingsPanelProps) {
   const [wordsInput, setWordsInput] = useState(String(settings.wordsPerPlayer))
   const [timerInput, setTimerInput] = useState(String(settings.turnDurationSeconds))
   const [wordsError, setWordsError] = useState<string | null>(null)
   const [timerError, setTimerError] = useState<string | null>(null)
+  const [hasManuallyEdited, setHasManuallyEdited] = useState(settings.wordsPerPlayerManuallySet ?? false)
 
   // Track latest settings in a ref so async handlers always revert to the current server value
   const settingsRef = useRef(settings)
@@ -361,17 +365,30 @@ function GameSettingsPanel({ settings, isHost, joinCode, playerId, onValidityCha
   // Keep local inputs in sync with SSE updates
   useEffect(() => { setWordsInput(String(settings.wordsPerPlayer)) }, [settings.wordsPerPlayer])
   useEffect(() => { setTimerInput(String(settings.turnDurationSeconds)) }, [settings.turnDurationSeconds])
+  useEffect(() => { setHasManuallyEdited(settings.wordsPerPlayerManuallySet ?? false) }, [settings.wordsPerPlayerManuallySet])
+
+  // Auto-calculate words-per-player when player count changes (unless host has manually edited)
+  useEffect(() => {
+    if (hasManuallyEdited) return
+    const newValue = calculateDefaultWordsPerPlayer(players.length)
+    const maxSubmitted = players.reduce((max, p) => Math.max(max, p.wordCount), 0)
+    if (newValue <= maxSubmitted) return
+    if (newValue === settings.wordsPerPlayer) return
+    setWordsInput(String(newValue))
+    saveField('wordsPerPlayer', newValue)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [players.length])
 
   // Propagate validity to parent so Start Game can be gated
   useEffect(() => {
     onValidityChange(wordsError === null && timerError === null)
   }, [wordsError, timerError, onValidityChange])
 
-  async function saveField(field: 'wordsPerPlayer' | 'turnDurationSeconds', value: number) {
+  async function saveField(field: 'wordsPerPlayer' | 'turnDurationSeconds', value: number, extra?: Partial<GameSettings>) {
     const res = await fetch(`/api/games/${joinCode}/settings`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ playerId, [field]: value }),
+      body: JSON.stringify({ playerId, [field]: value, ...extra }),
     })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
@@ -394,7 +411,7 @@ function GameSettingsPanel({ settings, isHost, joinCode, playerId, onValidityCha
       return
     }
     setWordsError(null)
-    if (n !== settings.wordsPerPlayer) saveField('wordsPerPlayer', n)
+    if (n !== settings.wordsPerPlayer) saveField('wordsPerPlayer', n, { wordsPerPlayerManuallySet: true })
   }
 
   function handleTimerBlur() {
@@ -428,11 +445,21 @@ function GameSettingsPanel({ settings, isHost, joinCode, playerId, onValidityCha
             min={1}
             max={20}
             value={wordsInput}
-            onChange={(e) => setWordsInput(e.target.value)}
+            onChange={(e) => {
+              setWordsInput(e.target.value)
+              setHasManuallyEdited(true)
+            }}
             onBlur={handleWordsBlur}
             className="rounded-lg border border-gray-200 px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-coral"
           />
-          {wordsError && <p className="text-xs text-red-500">{wordsError}</p>}
+          {wordsError
+            ? <p className="text-xs text-red-500">{wordsError}</p>
+            : <p className="text-xs text-gray-400">
+                {hasManuallyEdited
+                  ? 'Manually set — auto-calculation paused'
+                  : `Auto-calculated based on ${players.length} players`}
+              </p>
+          }
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-gray-600">Round timer in seconds (5–600)</span>

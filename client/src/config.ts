@@ -1,0 +1,3 @@
+export const DEFAULT_TARGET_WORD_COUNT = 30
+export const MIN_WORDS_PER_PLAYER = 3
+export const MAX_WORDS_PER_PLAYER = 10

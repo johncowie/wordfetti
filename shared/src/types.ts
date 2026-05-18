@@ -3,6 +3,7 @@ export type Team = 1 | 2
 export type GameSettings = {
   wordsPerPlayer: number
   turnDurationSeconds: number
+  wordsPerPlayerManuallySet?: boolean
 }
 
 export type Word = {
