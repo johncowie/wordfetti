@@ -136,19 +136,20 @@ export function createGamesRouter(store: GameStore): Router {
         return res.status(403).json({ error: 'Only the host can start the game' })
       }
 
-      const team1 = game.players.filter((p) => p.team === 1)
-      const team2 = game.players.filter((p) => p.team === 2)
+      const activePlayers = game.players.filter((p) => p.active)
+      const team1 = activePlayers.filter((p) => p.team === 1)
+      const team2 = activePlayers.filter((p) => p.team === 2)
       if (team1.length < 2 || team2.length < 2) {
         return res.status(422).json({ error: 'Both teams need at least 2 players to start' })
       }
 
-      const allWordsSubmitted = game.players.every((p) => p.wordCount >= game.settings.wordsPerPlayer)
+      const allWordsSubmitted = activePlayers.every((p) => p.wordCount >= game.settings.wordsPerPlayer)
       if (!allWordsSubmitted) {
         return res.status(422).json({ error: 'All players must submit their words before the game can start' })
       }
 
       const updated = await store.startGame(joinCode)
-      logger.info('Game started', { joinCode, playerCount: game.players.length, totalWords: game.players.reduce((sum, p) => sum + p.wordCount, 0) })
+      logger.info('Game started', { joinCode, playerCount: activePlayers.length, totalWords: activePlayers.reduce((sum, p) => sum + p.wordCount, 0) })
       res.json(updated)
     } catch (err) {
       next(err)
@@ -394,6 +395,26 @@ export function createGamesRouter(store: GameStore): Router {
         return res.status(409).json({ code: 'NAME_TAKEN', error: 'That name is already taken — please choose another.' })
       }
       next(err)
+    }
+  })
+
+  // DELETE /:joinCode/players/:targetPlayerId — host kicks a player
+  router.delete('/:joinCode/players/:targetPlayerId', async (req, res, next) => {
+    const joinCode = req.params.joinCode.toUpperCase()
+    const { targetPlayerId } = req.params
+    const { playerId } = req.body ?? {}
+    if (!playerId || typeof playerId !== 'string') {
+      return res.status(400).json({ error: 'playerId is required' })
+    }
+    try {
+      const game = await store.kickPlayer(joinCode, playerId, targetPlayerId)
+      return res.status(200).json(game)
+    } catch (err: unknown) {
+      if (err instanceof AppError && err.code === 'NOT_FOUND')
+        return res.status(404).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'FORBIDDEN')
+        return res.status(403).json({ error: err.message })
+      return next(err)
     }
   })
 

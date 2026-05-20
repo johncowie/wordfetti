@@ -282,4 +282,42 @@ export class InMemoryGameStore implements GameStore {
     this.touch(joinCode)
     return this.notifyAndReturn(joinCode, game)
   }
+
+  async kickPlayer(joinCode: string, hostPlayerId: string, targetPlayerId: string): Promise<GameSnapshot> {
+    const game = this.requireGame(joinCode)
+    if (!game.hostId || game.hostId !== hostPlayerId)
+      throw new AppError('FORBIDDEN', 'Only the host can kick players')
+
+    const target = game.roster.getById(targetPlayerId)
+    if (!target) throw new AppError('NOT_FOUND', 'Player not found')
+    if (targetPlayerId === game.hostId)
+      throw new AppError('FORBIDDEN', 'Cannot kick the host')
+
+    game.roster.kick(targetPlayerId)
+
+    if (game.status === 'in_progress' || game.status === 'between_rounds') {
+      const t1Active = game.roster.getByTeam(1).length
+      const t2Active = game.roster.getByTeam(2).length
+      if (t1Active === 0 || t2Active === 0) {
+        game.status = 'finished'
+        this.touch(joinCode)
+        return this.notifyAndReturn(joinCode, game)
+      }
+    }
+
+    if (game.status === 'in_progress' && targetPlayerId === game.currentClueGiverId) {
+      const newActiveTeam: 1 | 2 = game.activeTeam === 1 ? 2 : 1
+      const nextClueGiver = game.roster.assignNextClueGiver(newActiveTeam)
+      game.activeTeam = newActiveTeam
+      game.currentClueGiverId = nextClueGiver.id
+      game.turnPhase = 'ready'
+      game.guessedThisTurn = []
+      game.turnStartedAt = undefined
+      logger.info('Clue giver kicked; turn advanced', { joinCode, newActiveTeam, nextClueGiver: nextClueGiver.name })
+    }
+
+    logger.info('Player kicked', { joinCode, targetPlayerId })
+    this.touch(joinCode)
+    return this.notifyAndReturn(joinCode, game)
+  }
 }

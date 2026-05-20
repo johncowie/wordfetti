@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import type { GameSettings, Player } from '@wordfetti/shared'
 import { Logo } from '../components/Logo'
+import { ManagePlayersModal } from '../components/ManagePlayersModal'
 import { loadSession } from '../session'
 import { useGameState } from '../hooks/useGameState'
 import { calculateDefaultWordsPerPlayer } from '../utils/gameSettings'
@@ -12,6 +13,7 @@ export function LobbyPage() {
   const [copied, setCopied] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
   const [settingsValid, setSettingsValid] = useState(true)
+  const [showManagePlayers, setShowManagePlayers] = useState(false)
   // useState initialiser avoids calling loadSession on every render
   const [session] = useState(() => loadSession())
   const currentPlayerId =
@@ -64,11 +66,12 @@ export function LobbyPage() {
     )
   }
 
-  const team1 = game.players.filter((p) => p.team === 1)
-  const team2 = game.players.filter((p) => p.team === 2)
+  const activePlayers = game.players.filter((p) => p.active)
+  const team1 = activePlayers.filter((p) => p.team === 1)
+  const team2 = activePlayers.filter((p) => p.team === 2)
   const needsMorePlayers = team1.length < 2 || team2.length < 2
-  const allWordsSubmitted = game.players.every((p) => p.wordCount >= game.settings.wordsPerPlayer)
-  const pendingCount = game.players.filter((p) => p.wordCount < game.settings.wordsPerPlayer).length
+  const allWordsSubmitted = activePlayers.every((p) => p.wordCount >= game.settings.wordsPerPlayer)
+  const pendingCount = activePlayers.filter((p) => p.wordCount < game.settings.wordsPerPlayer).length
 
   return (
     <div className="flex min-h-screen flex-col items-center bg-brand-cream px-4 py-8">
@@ -147,7 +150,7 @@ export function LobbyPage() {
         {currentPlayerId && (
           <GameSettingsPanel
             settings={game.settings}
-            players={game.players}
+            players={activePlayers}
             isHost={currentPlayerId === game.hostId}
             joinCode={joinCode!}
             playerId={currentPlayerId}
@@ -164,6 +167,12 @@ export function LobbyPage() {
               className="rounded-xl bg-brand-coral px-8 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
             >
               Start Game
+            </button>
+            <button
+              onClick={() => setShowManagePlayers(true)}
+              className="text-sm underline text-gray-600 hover:text-gray-900"
+            >
+              Manage Players
             </button>
             {needsMorePlayers && (
               <p className="text-center text-sm text-gray-400">
@@ -186,6 +195,15 @@ export function LobbyPage() {
           </p>
         )}
       </div>
+
+      {showManagePlayers && currentPlayerId && (
+        <ManagePlayersModal
+          joinCode={joinCode!}
+          players={game.players}
+          hostPlayerId={currentPlayerId}
+          onClose={() => setShowManagePlayers(false)}
+        />
+      )}
     </div>
   )
 }

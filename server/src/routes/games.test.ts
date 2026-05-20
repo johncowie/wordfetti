@@ -41,6 +41,7 @@ const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
   getStats: () => ({ games: 0, words: 0, subscribers: 0, lastCleanupAt: null, lastCleanupRemovedCount: 0 }),
   updateSettings: vi.fn(),
   updateTeamName: vi.fn(),
+  kickPlayer: vi.fn(),
   ...overrides,
 })
 
@@ -957,10 +958,10 @@ describe('PATCH /api/games/:joinCode/settings', () => {
       hostId: hostId2,
       settings: { wordsPerPlayer: 2, turnDurationSeconds: 45 },
       players: [
-        { id: hostId2, name: 'Alice', team: 1 as const, wordCount: 2 },
-        { id: 'p2', name: 'Bob', team: 1 as const, wordCount: 2 },
-        { id: 'p3', name: 'Carol', team: 2 as const, wordCount: 2 },
-        { id: 'p4', name: 'Dave', team: 2 as const, wordCount: 2 },
+        { id: hostId2, name: 'Alice', team: 1 as const, wordCount: 2, active: true, stats: { clueGiverCount: 0 } },
+        { id: 'p2', name: 'Bob', team: 1 as const, wordCount: 2, active: true, stats: { clueGiverCount: 0 } },
+        { id: 'p3', name: 'Carol', team: 2 as const, wordCount: 2, active: true, stats: { clueGiverCount: 0 } },
+        { id: 'p4', name: 'Dave', team: 2 as const, wordCount: 2, active: true, stats: { clueGiverCount: 0 } },
       ],
     }
     const started = { ...game, status: 'in_progress' as const }
@@ -1057,5 +1058,60 @@ describe('GET /api/games/:joinCode/stats', () => {
     const store = mockStore({ getGameWords: async () => { throw new AppError('NOT_FOUND', 'Game not found') } })
     const res = await request(buildApp(store)).get('/ABC123/stats')
     expect(res.status).toBe(404)
+  })
+})
+
+describe('DELETE /api/games/:joinCode/players/:targetPlayerId', () => {
+  const hostId = 'host-id'
+  const targetId = 'target-id'
+  const gameWithKickedPlayer = {
+    id: 'test-id', joinCode: 'ABC123', status: 'lobby' as const,
+    players: [
+      { id: hostId, name: 'Alice', team: 1 as const, wordCount: 0, active: true, stats: { clueGiverCount: 0 } },
+      { id: targetId, name: 'Bob', team: 2 as const, wordCount: 0, active: false, stats: { clueGiverCount: 0 } },
+    ],
+    settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES, hostId,
+  }
+
+  it('returns 200 with kicked player having active:false on valid host kick', async () => {
+    const store = mockStore({ kickPlayer: vi.fn().mockResolvedValue(gameWithKickedPlayer) })
+    const res = await request(buildApp(store))
+      .delete(`/ABC123/players/${targetId}`)
+      .send({ playerId: hostId })
+    expect(res.status).toBe(200)
+    const kicked = res.body.players.find((p: { id: string }) => p.id === targetId)
+    expect(kicked.active).toBe(false)
+  })
+
+  it('returns 403 when non-host tries to kick', async () => {
+    const store = mockStore({ kickPlayer: vi.fn().mockRejectedValue(new AppError('FORBIDDEN', 'Only the host can kick players')) })
+    const res = await request(buildApp(store))
+      .delete(`/ABC123/players/${targetId}`)
+      .send({ playerId: 'not-the-host' })
+    expect(res.status).toBe(403)
+  })
+
+  it('returns 403 on self-kick attempt', async () => {
+    const store = mockStore({ kickPlayer: vi.fn().mockRejectedValue(new AppError('FORBIDDEN', 'Cannot kick the host')) })
+    const res = await request(buildApp(store))
+      .delete(`/ABC123/players/${hostId}`)
+      .send({ playerId: hostId })
+    expect(res.status).toBe(403)
+  })
+
+  it('returns 404 for unknown player', async () => {
+    const store = mockStore({ kickPlayer: vi.fn().mockRejectedValue(new AppError('NOT_FOUND', 'Player not found')) })
+    const res = await request(buildApp(store))
+      .delete('/ABC123/players/unknown-player')
+      .send({ playerId: hostId })
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 400 when playerId body field is missing', async () => {
+    const store = mockStore()
+    const res = await request(buildApp(store))
+      .delete(`/ABC123/players/${targetId}`)
+      .send({})
+    expect(res.status).toBe(400)
   })
 })

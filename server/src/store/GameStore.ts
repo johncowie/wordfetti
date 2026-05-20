@@ -34,4 +34,5 @@ export interface GameStore {
   deleteWord(joinCode: string, playerId: string, wordId: string): Promise<void>
   updateSettings(joinCode: string, playerId: string, patch: Partial<GameSettings>): Promise<GameSnapshot>
   updateTeamName(joinCode: string, playerId: string, team: 1 | 2, name: string): Promise<GameSnapshot>
+  kickPlayer(joinCode: string, hostPlayerId: string, targetPlayerId: string): Promise<GameSnapshot>
 }

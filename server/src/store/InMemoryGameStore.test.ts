@@ -1272,3 +1272,126 @@ describe('updateTeamName', () => {
     await expect(store.updateTeamName('XXXXXX', 'player1', 1, 'Test')).rejects.toMatchObject({ code: 'NOT_FOUND' })
   })
 })
+
+describe('kickPlayer', () => {
+  it('throws FORBIDDEN when caller is not the host', async () => {
+    const { store, joinCode } = await setupReadyGame()
+    const game = await store.getGameByJoinCode(joinCode)
+    const nonHost = game!.players.find((p) => p.id !== game!.hostId)!
+    await expect(store.kickPlayer(joinCode, nonHost.id, nonHost.id)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('throws FORBIDDEN when host tries to kick themselves', async () => {
+    const { store, joinCode } = await setupReadyGame()
+    const game = await store.getGameByJoinCode(joinCode)
+    const hostId = game!.hostId!
+    await expect(store.kickPlayer(joinCode, hostId, hostId)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('throws NOT_FOUND for an unknown targetPlayerId', async () => {
+    const { store, joinCode } = await setupReadyGame()
+    const game = await store.getGameByJoinCode(joinCode)
+    const hostId = game!.hostId!
+    await expect(store.kickPlayer(joinCode, hostId, 'no-such-player')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('lobby kick: player has active:false, others unaffected, stats preserved', async () => {
+    const { store, joinCode } = await setupReadyGame()
+    const game = await store.getGameByJoinCode(joinCode)
+    const hostId = game!.hostId!
+    const target = game!.players.find((p) => p.id !== hostId)!
+    const before = target.stats.clueGiverCount
+
+    const updated = await store.kickPlayer(joinCode, hostId, target.id)
+
+    const kicked = updated.players.find((p) => p.id === target.id)!
+    expect(kicked.active).toBe(false)
+    expect(kicked.stats.clueGiverCount).toBe(before)
+    expect(updated.players.filter((p) => p.id !== target.id).every((p) => p.active)).toBe(true)
+  })
+
+  it('active-game kick of non-clue-giver: turn is unaffected', async () => {
+    const { store, joinCode, game: started } = await setupStartedGame()
+    const hostId = started.hostId!
+    const originalClueGiverId = started.currentClueGiverId!
+    const target = started.players.find((p) => p.id !== hostId && p.id !== originalClueGiverId)!
+
+    const updated = await store.kickPlayer(joinCode, hostId, target.id)
+
+    expect(updated.currentClueGiverId).toBe(originalClueGiverId)
+    expect(updated.status).toBe('in_progress')
+  })
+
+  it('active-game kick of clue giver: turn advances to other team', async () => {
+    // Build a game where the host (Alice) is on team 2 so the team-1 first clue giver is always Bob (non-host).
+    const store = new InMemoryGameStore(TEST_CONFIG)
+    const { game, player: host } = await store.createGameWithHost('Alice', 2)
+    const bob = await store.joinGame(game.joinCode, 'Bob', 1)
+    const carol = await store.joinGame(game.joinCode, 'Carol', 1)
+    const dave = await store.joinGame(game.joinCode, 'Dave', 2)
+    for (const [pid, words] of [
+      [host.id, ['a', 'b', 'c', 'd', 'e']],
+      [bob.id,  ['f', 'g', 'h', 'i', 'j']],
+      [carol.id, ['k', 'l', 'm', 'n', 'o']],
+      [dave.id,  ['p', 'q', 'r', 's', 't']],
+    ] as [string, string[]][]) {
+      for (const text of words) await store.addWord(game.joinCode, pid, text)
+    }
+    const started = await store.startGame(game.joinCode)
+    const hostId = started.hostId!
+    const clueGiverId = started.currentClueGiverId!
+    const kickedTeam = started.activeTeam!
+
+    // If the clue giver is the host, activate then end their turn so a non-host is next
+    let finalClueGiverId = clueGiverId
+    let finalKickedTeam = kickedTeam
+    if (clueGiverId === hostId) {
+      await store.readyTurn(game.joinCode, hostId)
+      const advanced = await store.endTurn(game.joinCode, hostId)
+      finalClueGiverId = advanced.currentClueGiverId!
+      finalKickedTeam = advanced.activeTeam!
+    }
+
+    const updated = await store.kickPlayer(game.joinCode, hostId, finalClueGiverId)
+
+    expect(updated.currentClueGiverId).not.toBe(finalClueGiverId)
+    expect(updated.activeTeam).not.toBe(finalKickedTeam)
+    expect(updated.turnPhase).toBe('ready')
+    expect(updated.guessedThisTurn).toEqual([])
+    expect(updated.turnStartedAt).toBeUndefined()
+  })
+
+  it('active-game kick leaving a team with 0 active players: status becomes finished', async () => {
+    const store = new InMemoryGameStore(TEST_CONFIG)
+    const { game, player: host } = await store.createGameWithHost('Alice', 1)
+    const bob = await store.joinGame(game.joinCode, 'Bob', 1)
+    const carol = await store.joinGame(game.joinCode, 'Carol', 2)
+    const dave = await store.joinGame(game.joinCode, 'Dave', 2)
+    for (const [pid, words] of [
+      [host.id, ['a', 'b', 'c', 'd', 'e']],
+      [bob.id,  ['f', 'g', 'h', 'i', 'j']],
+      [carol.id, ['k', 'l', 'm', 'n', 'o']],
+      [dave.id,  ['p', 'q', 'r', 's', 't']],
+    ] as [string, string[]][]) {
+      for (const text of words) await store.addWord(game.joinCode, pid, text)
+    }
+    await store.startGame(game.joinCode)
+
+    await store.kickPlayer(game.joinCode, host.id, carol.id)
+    const updated = await store.kickPlayer(game.joinCode, host.id, dave.id)
+
+    expect(updated.status).toBe('finished')
+  })
+
+  it('kicked player still appears in players list with active:false', async () => {
+    const { store, joinCode } = await setupReadyGame()
+    const game = await store.getGameByJoinCode(joinCode)
+    const hostId = game!.hostId!
+    const target = game!.players.find((p) => p.id !== hostId)!
+
+    const updated = await store.kickPlayer(joinCode, hostId, target.id)
+
+    expect(updated.players.some((p) => p.id === target.id)).toBe(true)
+    expect(updated.players.find((p) => p.id === target.id)!.active).toBe(false)
+  })
+})

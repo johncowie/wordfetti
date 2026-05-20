@@ -126,8 +126,8 @@ async kickPlayer(joinCode: string, hostPlayerId: string, targetPlayerId: string)
 
 #### Automated Verification
 
-- [ ] TypeScript compiles: `pnpm --filter server build`
-- [ ] Store unit tests pass: `pnpm test` — new tests in `InMemoryGameStore.test.ts` covering:
+- [x] TypeScript compiles: `pnpm --filter server build`
+- [x] Store unit tests pass: `pnpm test` — new tests in `InMemoryGameStore.test.ts` covering:
   - Non-host caller → throws `FORBIDDEN`
   - Self-kick attempt → throws `FORBIDDEN`
   - Unknown target → throws `NOT_FOUND`
@@ -176,8 +176,8 @@ router.delete('/:joinCode/players/:targetPlayerId', async (req, res, next) => {
 
 #### Automated Verification
 
-- [ ] TypeScript compiles: `pnpm --filter server build`
-- [ ] Route integration tests pass: `pnpm test` — new tests in `games.test.ts` covering:
+- [x] TypeScript compiles: `pnpm --filter server build`
+- [x] Route integration tests pass: `pnpm test` — new tests in `games.test.ts` covering:
   - Valid host kick → 200, response includes player with `active: false`
   - Non-host caller → 403
   - Self-kick → 403
@@ -301,7 +301,7 @@ export function ManagePlayersModal({ joinCode, players, hostPlayerId, onClose }:
 
 #### Automated Verification
 
-- [ ] TypeScript compiles: `pnpm --filter client build`
+- [x] TypeScript compiles: `pnpm --filter client build`
 
 #### Manual Verification
 
@@ -399,8 +399,8 @@ const [showManagePlayers, setShowManagePlayers] = useState(false)
 
 #### Automated Verification
 
-- [ ] TypeScript compiles: `pnpm --filter client build`
-- [ ] All tests pass: `pnpm test`
+- [x] TypeScript compiles: `pnpm --filter client build`
+- [x] All tests pass: `pnpm test`
 
 #### Manual Verification
 

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import type { GameSnapshot } from '@wordfetti/shared'
 import { Logo } from '../components/Logo'
+import { ManagePlayersModal } from '../components/ManagePlayersModal'
 import { TurnTimer } from '../components/TurnTimer'
 import { loadSession } from '../session'
 import { useGameState } from '../hooks/useGameState'
@@ -27,6 +28,7 @@ export function GamePage() {
 
   const prevStatusRef = useRef<string | undefined>(undefined)
   const [showRoundSplash, setShowRoundSplash] = useState(false)
+  const [showManagePlayers, setShowManagePlayers] = useState(false)
 
   // Redirect if no session for this game
   useEffect(() => {
@@ -94,8 +96,17 @@ export function GamePage() {
             isHost={isHost}
             joinCode={joinCode!}
             playerId={currentPlayerId!}
+            onManagePlayers={isHost ? () => setShowManagePlayers(true) : undefined}
           />
         </div>
+        {showManagePlayers && currentPlayerId && (
+          <ManagePlayersModal
+            joinCode={joinCode!}
+            players={game.players}
+            hostPlayerId={currentPlayerId}
+            onClose={() => setShowManagePlayers(false)}
+          />
+        )}
       </div>
     )
   }
@@ -114,6 +125,8 @@ export function GamePage() {
   const isClueGiver = currentPlayerId === game.currentClueGiverId
   const isGuesser = !isClueGiver && currentPlayer?.team === clueGiver.team
 
+  const isHost = currentPlayerId === game.hostId
+
   return (
     <div className="flex min-h-screen flex-col items-center bg-brand-cream px-4 py-8">
       <div className="w-full max-w-lg">
@@ -125,18 +138,36 @@ export function GamePage() {
           <ClueGiverView game={game} joinCode={joinCode!} playerId={currentPlayerId!} clockOffset={clockOffset} clockOffsetReady={clockOffsetReady} />
         )}
         {!isClueGiver && game.turnPhase === 'ready' && (
-          <WaitingView clueGiverName={clueGiver.name} />
+          <WaitingView
+            clueGiverName={clueGiver.name}
+            onManagePlayers={isHost ? () => setShowManagePlayers(true) : undefined}
+          />
         )}
         {!isClueGiver && game.turnPhase === 'active' && isGuesser && (
           <GuesserView clueGiverName={clueGiver.name} game={game} clockOffset={clockOffset} clockOffsetReady={clockOffsetReady} />
         )}
         {!isClueGiver && game.turnPhase === 'active' && !isGuesser && (
-          <SpectatorView clueGiverName={clueGiver.name} team={clueGiver.team} game={game} clockOffset={clockOffset} clockOffsetReady={clockOffsetReady} />
+          <SpectatorView
+            clueGiverName={clueGiver.name}
+            team={clueGiver.team}
+            game={game}
+            clockOffset={clockOffset}
+            clockOffsetReady={clockOffsetReady}
+            onManagePlayers={isHost ? () => setShowManagePlayers(true) : undefined}
+          />
         )}
         {!isClueGiver && game.turnPhase !== 'ready' && game.turnPhase !== 'active' && (
           <p role="status" className="text-gray-400">Loading...</p>
         )}
       </div>
+      {showManagePlayers && currentPlayerId && (
+        <ManagePlayersModal
+          joinCode={joinCode!}
+          players={game.players}
+          hostPlayerId={currentPlayerId}
+          onClose={() => setShowManagePlayers(false)}
+        />
+      )}
     </div>
   )
 }
@@ -278,12 +309,17 @@ function ClueGiverView({
   )
 }
 
-function WaitingView({ clueGiverName }: { clueGiverName: string }) {
+function WaitingView({ clueGiverName, onManagePlayers }: { clueGiverName: string; onManagePlayers?: () => void }) {
   return (
     <div className="mt-8 text-center">
       <p className="text-xl font-semibold text-gray-900">
         Waiting for <span className="text-brand-coral">{clueGiverName}</span> to start their turn...
       </p>
+      {onManagePlayers && (
+        <button onClick={onManagePlayers} className="mt-4 text-sm underline text-gray-500 hover:text-gray-800">
+          Manage Players
+        </button>
+      )}
     </div>
   )
 }
@@ -314,12 +350,14 @@ function SpectatorView({
   game,
   clockOffset,
   clockOffsetReady,
+  onManagePlayers,
 }: {
   clueGiverName: string
   team: 1 | 2
   game: GameSnapshot
   clockOffset: number
   clockOffsetReady: boolean
+  onManagePlayers?: () => void
 }) {
   const guessed = game.guessedThisTurn ?? []
   const activeTeamName = team === 1 ? game.teamNames.team1 : game.teamNames.team2
@@ -345,6 +383,11 @@ function SpectatorView({
           <span>{game.teamNames.team2}: {game.scores.team2}</span>
         </div>
       )}
+      {onManagePlayers && (
+        <button onClick={onManagePlayers} className="text-sm underline text-gray-500 hover:text-gray-800">
+          Manage Players
+        </button>
+      )}
       {guessed.length > 0 && (
         <div>
           <p className="mb-2 text-sm font-medium uppercase tracking-wide text-gray-500">
@@ -361,8 +404,8 @@ function SpectatorView({
   )
 }
 
-function BetweenRoundsView({ round, isHost, joinCode, playerId }: {
-  round: 1 | 2 | 3; isHost: boolean; joinCode: string; playerId: string
+function BetweenRoundsView({ round, isHost, joinCode, playerId, onManagePlayers }: {
+  round: 1 | 2 | 3; isHost: boolean; joinCode: string; playerId: string; onManagePlayers?: () => void
 }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -406,6 +449,11 @@ function BetweenRoundsView({ round, isHost, joinCode, playerId }: {
           >
             Start Round {round + 1}
           </button>
+          {onManagePlayers && (
+            <button onClick={onManagePlayers} className="text-sm underline text-gray-500 hover:text-gray-800">
+              Manage Players
+            </button>
+          )}
         </>
       ) : (
         <p className="text-gray-600">Waiting for the host to start Round {round + 1}...</p>
