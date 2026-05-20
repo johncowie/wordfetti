@@ -4,6 +4,6 @@ export type GameConfig = {
 }
 
 export const DEFAULT_GAME_CONFIG: GameConfig = {
-  wordsPerPlayer: 3,
+  wordsPerPlayer: 5,
   turnDurationSeconds: 45,
 }

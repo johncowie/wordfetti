@@ -367,9 +367,11 @@ function GameSettingsPanel({ settings, players, isHost, joinCode, playerId, onVa
   useEffect(() => { setTimerInput(String(settings.turnDurationSeconds)) }, [settings.turnDurationSeconds])
   useEffect(() => { setHasManuallyEdited(settings.wordsPerPlayerManuallySet ?? false) }, [settings.wordsPerPlayerManuallySet])
 
-  // Auto-calculate words-per-player when player count changes (unless host has manually edited)
+  // Auto-calculate words-per-player when player count changes (unless host has manually edited).
+  // Only kicks in once 4+ players have joined — the minimum required to start a game.
   useEffect(() => {
     if (hasManuallyEdited) return
+    if (players.length < 4) return
     const newValue = calculateDefaultWordsPerPlayer(players.length)
     const maxSubmitted = players.reduce((max, p) => Math.max(max, p.wordCount), 0)
     if (newValue <= maxSubmitted) return
@@ -457,7 +459,9 @@ function GameSettingsPanel({ settings, players, isHost, joinCode, playerId, onVa
             : <p className="text-xs text-gray-400">
                 {hasManuallyEdited
                   ? 'Manually set — auto-calculation paused'
-                  : `Auto-calculated based on ${players.length} players`}
+                  : players.length < 4
+                    ? 'Auto-calculation starts once 4+ players have joined'
+                    : `Auto-calculated based on ${players.length} players`}
               </p>
           }
         </label>
