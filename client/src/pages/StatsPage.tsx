@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import type { BestClueGiver, GameStats, SubmitterWords } from '@wordfetti/shared'
+import type { BestClueGiver, GameStats, SubmitterWords, WordDifficultyStats } from '@wordfetti/shared'
 
 type Duplication = {
   word: string
@@ -60,6 +60,43 @@ function BestClueGiverSection({ bestClueGiver }: { bestClueGiver: BestClueGiver 
   )
 }
 
+function formatAvgTime(ms: number): string {
+  return `${(ms / 1000).toFixed(1)} seconds`
+}
+
+function WordDifficultySection({ wordDifficulty }: { wordDifficulty: WordDifficultyStats | null }) {
+  if (!wordDifficulty) return null
+  return (
+    <section className="w-full max-w-md rounded-2xl bg-brand-muted px-6 py-6">
+      <p className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-400">Word Difficulty</p>
+      <div className="flex flex-col gap-6">
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Easiest</p>
+          <div className="flex flex-col gap-2">
+            {wordDifficulty.easiest.map(({ word, avgMs }) => (
+              <div key={word} className="flex justify-between rounded-xl bg-white px-4 py-3 text-sm shadow-sm">
+                <span className="text-gray-900">{word}</span>
+                <span className="text-gray-400">{formatAvgTime(avgMs)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Hardest</p>
+          <div className="flex flex-col gap-2">
+            {wordDifficulty.hardest.map(({ word, avgMs }) => (
+              <div key={word} className="flex justify-between rounded-xl bg-white px-4 py-3 text-sm shadow-sm">
+                <span className="text-gray-900">{word}</span>
+                <span className="text-gray-400">{formatAvgTime(avgMs)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 export function StatsPage() {
   const { joinCode } = useParams<{ joinCode: string }>()
   const [stats, setStats] = useState<GameStats | null>(null)
@@ -104,6 +141,8 @@ export function StatsPage() {
       <BestClueGiverSection bestClueGiver={stats.bestClueGiver} />
 
       <DuplicationsSection wordsBySubmitter={stats.wordsBySubmitter} />
+
+      <WordDifficultySection wordDifficulty={stats.wordDifficulty} />
 
       {stats.wordsBySubmitter.length === 0 ? (
         <p className="text-gray-400">No words were submitted for this game.</p>

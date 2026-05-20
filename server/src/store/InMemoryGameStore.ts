@@ -7,6 +7,7 @@ import { pickTeamNames } from '../teamNames.js'
 import { AppError } from '../errors.js'
 import { logger } from '../logger.js'
 import { GameSession } from './Game.js'
+import { computeWordDifficulty } from '../stats/computeWordDifficulty.js'
 
 const MAX_JOIN_CODE_ATTEMPTS = 10
 const STALE_GAME_TTL_MS = 8 * 60 * 60 * 1000
@@ -251,7 +252,10 @@ export class InMemoryGameStore implements GameStore {
       }))
       .sort((a, b) => a.submitterName.localeCompare(b.submitterName))
 
-    return { wordsBySubmitter, bestClueGiver: game.roster.getBestClueGiver() }
+    const hatWordStats = game.hat?.wordStats ?? []
+    const wordDifficulty = computeWordDifficulty(hatWordStats)
+
+    return { wordsBySubmitter, bestClueGiver: game.roster.getBestClueGiver(), wordDifficulty }
   }
 
   async deleteWord(joinCode: string, playerId: string, wordId: string): Promise<void> {

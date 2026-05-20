@@ -160,4 +160,67 @@ describe('Hat', () => {
       expect(hat.wordTexts()).toHaveLength(1)
     })
   })
+
+  describe('wordStats', () => {
+    it('returns empty guessTimes before any guesses', () => {
+      const hat = new Hat([w('a', 'apple'), w('b', 'banana')])
+      hat.wordStats.forEach(ws => expect(ws.guessTimes).toEqual([]))
+    })
+
+    it('records elapsed time when a word is guessed', () => {
+      let time = 0
+      const clock = () => time
+      const hat = new Hat([w('a', 'apple'), w('b', 'banana')], clock)
+      hat.startTurn()
+      time = 3000
+      hat.guess()
+      const stats = hat.wordStats.find(ws => ws.guessTimes.length > 0)
+      expect(stats?.guessTimes[0]).toBe(3000)
+    })
+
+    it('does not record time when a word is skipped', () => {
+      let time = 0
+      const clock = () => time
+      const hat = new Hat([w('a', 'apple'), w('b', 'banana')], clock)
+      hat.startTurn()
+      time = 5000
+      hat.skip()
+      hat.wordStats.forEach(ws => expect(ws.guessTimes).toEqual([]))
+    })
+
+    it('accumulates guess times across rounds via refill', () => {
+      let time = 0
+      const clock = () => time
+      const hat = new Hat([w('a', 'apple')], clock)
+      // Round 1
+      hat.startTurn()
+      time = 2000
+      hat.guess()
+      hat.refill()
+      // Round 2
+      hat.startTurn()
+      time = 5000
+      hat.guess()
+      const stats = hat.wordStats.find(ws => ws.id === 'a')
+      expect(stats?.guessTimes).toHaveLength(2)
+      expect(stats?.guessTimes[0]).toBe(2000)
+      expect(stats?.guessTimes[1]).toBe(3000) // 5000 - 2000 (shownAt reset by refill then startTurn)
+    })
+
+    it('refill resets shownAt so times are measured fresh each round', () => {
+      let time = 1000
+      const clock = () => time
+      const hat = new Hat([w('a', 'apple')], clock)
+      hat.startTurn()     // shownAt = 1000
+      time = 4000
+      hat.guess()         // records 3000ms, hat empty
+      hat.refill()
+      time = 10000
+      hat.startTurn()     // shownAt = 10000 (not 1000)
+      time = 12000
+      hat.guess()         // records 2000ms
+      const stats = hat.wordStats.find(ws => ws.id === 'a')
+      expect(stats?.guessTimes).toEqual([3000, 2000])
+    })
+  })
 })

@@ -21,9 +21,20 @@ export type BestClueGiver = {
   clueCount: number
 }
 
+export type WordDifficultyStat = {
+  word: string
+  avgMs: number
+}
+
+export type WordDifficultyStats = {
+  easiest: WordDifficultyStat[]
+  hardest: WordDifficultyStat[]
+}
+
 export type GameStats = {
   wordsBySubmitter: SubmitterWords[]
   bestClueGiver: BestClueGiver | null
+  wordDifficulty: WordDifficultyStats | null
 }
 
 export type Player = {

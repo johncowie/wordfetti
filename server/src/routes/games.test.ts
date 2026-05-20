@@ -35,7 +35,7 @@ const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
   }),
   addWord: async () => ({ id: 'w1', text: 'banana' }),
   getWords: async () => [],
-  getGameWords: async () => ({ wordsBySubmitter: [], bestClueGiver: null }),
+  getGameWords: async () => ({ wordsBySubmitter: [], bestClueGiver: null, wordDifficulty: null }),
   deleteWord: async () => undefined,
   getTeamNamePreview: vi.fn().mockReturnValue(DEFAULT_TEAM_NAMES),
   getStats: () => ({ games: 0, words: 0, subscribers: 0, lastCleanupAt: null, lastCleanupRemovedCount: 0 }),
@@ -1047,6 +1047,7 @@ describe('GET /api/games/:joinCode/stats', () => {
       getGameWords: async () => ({
         wordsBySubmitter: [],
         bestClueGiver: { names: ['Alice'], clueCount: 5 },
+        wordDifficulty: null,
       }),
     })
     const res = await request(buildApp(store)).get('/ABC123/stats')
