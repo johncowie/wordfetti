@@ -31,6 +31,10 @@ export type Player = {
   name: string
   team: Team
   wordCount: number
+  active: boolean
+  stats: {
+    clueGiverCount: number
+  }
 }
 
 export type Game = {

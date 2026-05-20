@@ -1,15 +1,10 @@
 import { Router } from 'express'
 import rateLimit from 'express-rate-limit'
-import type { Game, GameSettings, GameStats } from '@wordfetti/shared'
+import type { GameSettings } from '@wordfetti/shared'
 import { type Team } from '@wordfetti/shared'
 import type { GameStore } from '../store/GameStore.js'
 import { AppError } from '../errors.js'
 import { logger } from '../logger.js'
-
-function toPublicGame(game: Game & { hat?: unknown; skippedThisTurn?: unknown; currentWordId?: unknown; clueGiverIndices?: unknown; originalWords?: unknown; clueGiverStats?: unknown }) {
-  const { hat: _hat, skippedThisTurn: _skipped, currentWordId: _id, clueGiverIndices: _ci, originalWords: _ow, clueGiverStats: _cgs, ...publicGame } = game
-  return publicGame
-}
 
 function isValidTeam(value: unknown): value is Team {
   return value === 1 || value === 2
@@ -80,7 +75,7 @@ export function createGamesRouter(store: GameStore): Router {
     try {
       const game = await store.getGameByJoinCode(req.params.joinCode.toUpperCase())
       if (!game) return res.status(404).json({ error: 'Game not found' })
-      res.json(toPublicGame(game))
+      res.json(game)
     } catch (err) {
       next(err)
     }
@@ -105,7 +100,7 @@ export function createGamesRouter(store: GameStore): Router {
       // Subscribe BEFORE fetching the snapshot so any player join that occurs
       // in the gap between the two store calls is not silently missed.
       const unsubscribe = store.subscribe(joinCode, (updatedGame) => {
-        res.write(`data: ${JSON.stringify(toPublicGame(updatedGame))}\n\n`)
+        res.write(`data: ${JSON.stringify(updatedGame)}\n\n`)
       })
 
       logger.info('SSE client connected', { joinCode, subscribers: store.getStats().subscribers })
@@ -113,7 +108,7 @@ export function createGamesRouter(store: GameStore): Router {
       // Fetch a fresh snapshot after subscribing; any concurrent join is now
       // either captured by the callback above or already in this snapshot.
       const snapshot = (await store.getGameByJoinCode(joinCode))!
-      res.write(`data: ${JSON.stringify(toPublicGame(snapshot))}\n\n`)
+      res.write(`data: ${JSON.stringify(snapshot)}\n\n`)
 
       const heartbeat = setInterval(() => {
         res.write(': keepalive\n\n')
@@ -154,7 +149,7 @@ export function createGamesRouter(store: GameStore): Router {
 
       const updated = await store.startGame(joinCode)
       logger.info('Game started', { joinCode, playerCount: game.players.length, totalWords: game.players.reduce((sum, p) => sum + p.wordCount, 0) })
-      res.json(toPublicGame(updated))
+      res.json(updated)
     } catch (err) {
       next(err)
     }
@@ -253,7 +248,7 @@ export function createGamesRouter(store: GameStore): Router {
         return res.status(400).json({ error: 'playerId is required' })
       }
       const updated = await store.readyTurn(joinCode, playerId)
-      return res.json(toPublicGame(updated))
+      return res.json(updated)
     } catch (err: unknown) {
       if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })
       if (err instanceof AppError && err.code === 'FORBIDDEN') {
@@ -277,7 +272,7 @@ export function createGamesRouter(store: GameStore): Router {
         return res.status(400).json({ error: 'playerId is required' })
       }
       const updated = await store.guessWord(joinCode, playerId)
-      return res.json(toPublicGame(updated))
+      return res.json(updated)
     } catch (err: unknown) {
       if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })
       if (err instanceof AppError && err.code === 'FORBIDDEN') {
@@ -304,7 +299,7 @@ export function createGamesRouter(store: GameStore): Router {
         return res.status(400).json({ error: 'playerId is required' })
       }
       const updated = await store.skipWord(joinCode, playerId)
-      return res.json(toPublicGame(updated))
+      return res.json(updated)
     } catch (err: unknown) {
       if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })
       if (err instanceof AppError && err.code === 'FORBIDDEN') {
@@ -331,7 +326,7 @@ export function createGamesRouter(store: GameStore): Router {
         return res.status(400).json({ error: 'playerId is required' })
       }
       const updated = await store.endTurn(joinCode, playerId)
-      return res.json(toPublicGame(updated))
+      return res.json(updated)
     } catch (err: unknown) {
       if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })
       if (err instanceof AppError && err.code === 'FORBIDDEN') {
@@ -358,7 +353,7 @@ export function createGamesRouter(store: GameStore): Router {
         return res.status(400).json({ error: 'playerId is required' })
       }
       const updated = await store.advanceRound(joinCode, playerId)
-      return res.json(toPublicGame(updated))
+      return res.json(updated)
     } catch (err: unknown) {
       if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })
       if (err instanceof AppError && err.code === 'FORBIDDEN') {
@@ -445,7 +440,7 @@ export function createGamesRouter(store: GameStore): Router {
       }
 
       const updated = await store.updateSettings(joinCode, playerId, patch)
-      return res.json(toPublicGame(updated))
+      return res.json(updated)
     } catch (err: unknown) {
       if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: 'Game not found' })
       if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: 'Only the host can change game settings' })
@@ -472,7 +467,7 @@ export function createGamesRouter(store: GameStore): Router {
       }
 
       const updated = await store.updateTeamName(joinCode, playerId, team, name)
-      return res.json(toPublicGame(updated))
+      return res.json(updated)
     } catch (err: unknown) {
       if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })
       if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: err.message })

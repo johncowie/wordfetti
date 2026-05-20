@@ -6,18 +6,18 @@ import { generateJoinCode } from './joinCode.js'
 import { pickTeamNames } from '../teamNames.js'
 import { AppError } from '../errors.js'
 import { logger } from '../logger.js'
+import { PlayerRoster } from './PlayerRoster.js'
 
 const MAX_JOIN_CODE_ATTEMPTS = 10
 const STALE_GAME_TTL_MS = 8 * 60 * 60 * 1000
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000
 
-export type InternalGame = Game & {
+export type InternalGame = Omit<Game, 'players'> & {
+  roster: PlayerRoster
   hat: Word[]
   originalWords: Word[]          // full word list set at startGame; used to refill hat each round
   skippedThisTurn: string[]  // word IDs skipped this turn
   currentWordId?: string     // ID of the word currently being described
-  clueGiverIndices: Record<Team, number>  // next index to use per team; advanced at endTurn, not readyTurn
-  clueGiverStats: Record<string, number>  // playerId → total clues guessed across all turns and rounds
   createdAt: string
   updatedAt: string
 }
@@ -31,25 +31,20 @@ function shuffle<T>(arr: T[]): T[] {
   return result
 }
 
-function computeBestClueGiver(
-  stats: Record<string, number>,
-  players: Player[],
-): BestClueGiver | null {
-  const entries = Object.entries(stats)
-  if (entries.length === 0) return null
-
-  const max = Math.max(...entries.map(([, count]) => count))
-  const playerNames = new Map(players.map((p) => [p.id, p.name]))
-  const names = entries
-    .filter(([, count]) => count === max)
-    .map(([id]) => playerNames.get(id) ?? id)
+function computeBestClueGiver(players: Player[]): BestClueGiver | null {
+  const withStats = players.filter((p) => p.stats.clueGiverCount > 0)
+  if (withStats.length === 0) return null
+  const max = Math.max(...withStats.map((p) => p.stats.clueGiverCount))
+  const names = withStats
+    .filter((p) => p.stats.clueGiverCount === max)
+    .map((p) => p.name)
     .sort((a, b) => a.localeCompare(b))
-
   return { names, clueCount: max }
 }
 
-function normaliseName(name: string): string {
-  return name.trim().toLowerCase().replace(/\s+/g, ' ')
+export function toPublicGame(game: InternalGame): Game {
+  const { hat: _hat, skippedThisTurn: _skipped, currentWordId: _id, originalWords: _ow, roster, createdAt: _ca, updatedAt: _ua, ...rest } = game
+  return { ...rest, players: roster.getAll() }
 }
 
 export class InMemoryGameStore implements GameStore {
@@ -99,9 +94,9 @@ export class InMemoryGameStore implements GameStore {
 
   private notifySubscribers(joinCode: string, game: InternalGame): Game {
     this.touchGame(game)
-    const snapshot = { ...game, players: [...game.players] }
-    this.subscribers.get(joinCode)?.forEach((cb) => cb(snapshot))
-    return snapshot
+    const publicGame = toPublicGame(game)
+    this.subscribers.get(joinCode)?.forEach((cb) => cb(publicGame))
+    return publicGame
   }
 
   private removeGame(joinCode: string, reason: 'stale'): void {
@@ -164,7 +159,7 @@ export class InMemoryGameStore implements GameStore {
       createdAt: now,
       updatedAt: now,
       status: 'lobby',
-      players: [],
+      roster: new PlayerRoster(),
       teamNames: teamNames ?? pickTeamNames(this.teamNamesPool),
       settings: {
         wordsPerPlayer: this.config.wordsPerPlayer,
@@ -173,12 +168,10 @@ export class InMemoryGameStore implements GameStore {
       hat: [],
       originalWords: [],
       skippedThisTurn: [],
-      clueGiverIndices: { 1: 0, 2: 0 },
-      clueGiverStats: {},
     }
     this.games.set(joinCode, game)
     logger.info('Game added to in-memory store', { joinCode, ...this.getStats() })
-    return { ...game, players: [...game.players] }
+    return toPublicGame(game)
   }
 
   async createGameWithHost(name: string, team: Team, teamNames?: { team1: string; team2: string }): Promise<{ game: Game; player: Player }> {
@@ -194,20 +187,19 @@ export class InMemoryGameStore implements GameStore {
   async getGameByJoinCode(joinCode: string): Promise<Game | null> {
     const game = this.games.get(joinCode)
     if (!game) return null
-    return { ...game, players: [...game.players] }
+    return toPublicGame(game)
   }
 
   async joinGame(joinCode: string, name: string, team: Team): Promise<Player> {
     const game = this.games.get(joinCode)
     if (!game) throw new AppError('NOT_FOUND', 'Game not found')
     if (game.status !== 'lobby') throw new AppError('GAME_IN_PROGRESS', 'Game has already started')
-    const isDuplicate = game.players.some((p) => normaliseName(p.name) === normaliseName(name))
-    // Note: no `await` exists between this check and game.players.push below,
+    const isDuplicate = game.roster.hasDuplicateName(name)
+    // Note: no `await` exists between this check and roster.add below,
     // so Node.js's single-threaded event loop guarantees the check-then-act is atomic.
     // If an `await` is ever introduced between these two lines, a mutex will be needed.
     if (isDuplicate) throw new AppError('NAME_TAKEN', 'That name is already taken')
-    const player: Player = { id: randomUUID(), name, team, wordCount: 0 }
-    game.players.push(player)
+    const player = game.roster.add({ id: randomUUID(), name, team, wordCount: 0 })
     this.notifySubscribers(joinCode, game)
     return { ...player }
   }
@@ -216,16 +208,21 @@ export class InMemoryGameStore implements GameStore {
     const game = this.games.get(joinCode)
     if (!game) throw new AppError('NOT_FOUND', 'Game not found')
 
-    const allWords: Word[] = game.players.flatMap((p) =>
+    const allWords: Word[] = game.roster.getActive().flatMap((p) =>
       this.words.get(`${joinCode}:${p.id}`) ?? []
     )
 
     const shuffledWords = shuffle(allWords)
 
     const activeTeam: 1 | 2 = Math.random() < 0.5 ? 1 : 2
-    const activeTeamPlayers = game.players.filter((p) => p.team === activeTeam)
-    const firstClueGiver = activeTeamPlayers[0]
-    if (!firstClueGiver) throw new AppError('INVALID_STATE', 'No players on the active team')
+
+    // Reset stats before assigning first clue giver for a clean round 1 baseline
+    game.roster.resetStats()
+
+    if (game.roster.getByTeam(activeTeam).length === 0) {
+      throw new AppError('INVALID_STATE', 'No players on the active team')
+    }
+    const firstClueGiver = game.roster.assignNextClueGiver(activeTeam)
 
     // Commit all mutations in a single step to avoid partial state on future errors
     Object.assign(game, {
@@ -238,13 +235,6 @@ export class InMemoryGameStore implements GameStore {
       turnPhase: 'ready',
       scores: { team1: 0, team2: 0 },
       skippedThisTurn: [],
-      clueGiverStats: {},
-      // Index for starting team advances past player[0] (already assigned); other team starts at 0.
-      // activeTeamPlayers.length is always ≥2 (route validates before calling startGame).
-      clueGiverIndices: {
-        1: activeTeam === 1 ? 1 % activeTeamPlayers.length : 0,
-        2: activeTeam === 2 ? 1 % activeTeamPlayers.length : 0,
-      } as Record<Team, number>,
     })
 
     const snapshot = this.notifySubscribers(joinCode, game)
@@ -320,7 +310,7 @@ export class InMemoryGameStore implements GameStore {
       }
     }, turnDurationSeconds * 1000 + 500)
 
-    const clueGiver = game.players.find((p) => p.id === playerId)
+    const clueGiver = game.roster.getById(game.currentClueGiverId ?? '')
     logger.debug('Turn started', {
       joinCode,
       activeTeam: game.activeTeam,
@@ -337,7 +327,6 @@ export class InMemoryGameStore implements GameStore {
   async endTurn(joinCode: string, playerId: string): Promise<Game> {
     const game = this.assertClueGiverTurn(joinCode, playerId)
     if (game.turnPhase !== 'active') throw new AppError('TURN_NOT_ACTIVE', 'Turn is not active')
-    if (!game.clueGiverIndices) throw new AppError('INVALID_STATE', 'clueGiverIndices not initialised')
 
     // Current word stays in hat (never removed during an active turn — only guessWord removes words).
     // Defensive guard: this path is unreachable via the public API; guard anyway so a bug surfaces loudly.
@@ -358,18 +347,9 @@ export class InMemoryGameStore implements GameStore {
     // Guard optional fields before mutation
     if (!game.activeTeam) throw new AppError('INVALID_STATE', 'Active team not set')
 
-    // Rotate team
+    // Rotate to the other team; assignNextClueGiver throws if no active players remain
     const newTeam: 1 | 2 = game.activeTeam === 1 ? 2 : 1
-    const newTeamPlayers = game.players.filter((p) => p.team === newTeam)
-    if (!newTeamPlayers.length) throw new AppError('INVALID_STATE', 'No players on the next team')
-
-    const nextIndex = game.clueGiverIndices[newTeam]
-    const nextClueGiver = newTeamPlayers[nextIndex % newTeamPlayers.length]
-
-    // Pre-advance the index so the *next* endTurn for this team picks the correct successor.
-    // Convention: clueGiverIndices[team] always holds the index of the player who goes after
-    // the one just assigned — it is advanced here (at turn end), not at readyTurn.
-    game.clueGiverIndices[newTeam] = (nextIndex + 1) % newTeamPlayers.length
+    const nextClueGiver = game.roster.assignNextClueGiver(newTeam)
 
     Object.assign(game, {
       activeTeam: newTeam,
@@ -399,13 +379,9 @@ export class InMemoryGameStore implements GameStore {
     const shuffledHat = shuffle(game.originalWords)
 
     // The round ended mid-turn (guessWord drains the hat without calling endTurn), so activeTeam
-    // is still the team that gave the last clue. Mirror endTurn: flip to the OTHER team and
-    // pre-advance that team's index so the rotation continues without repeating a player.
+    // is still the team that gave the last clue. Mirror endTurn: flip to the OTHER team.
     const newActiveTeam: 1 | 2 = game.activeTeam === 1 ? 2 : 1
-    const teamPlayers = game.players.filter((p) => p.team === newActiveTeam)
-    const nextIndex = game.clueGiverIndices[newActiveTeam]
-    const nextClueGiver = teamPlayers[nextIndex % teamPlayers.length]
-    game.clueGiverIndices[newActiveTeam] = (nextIndex + 1) % teamPlayers.length
+    const nextClueGiver = game.roster.assignNextClueGiver(newActiveTeam)
 
     Object.assign(game, {
       round: (game.round === 1 ? 2 : 3) as 1 | 2 | 3,
@@ -420,7 +396,6 @@ export class InMemoryGameStore implements GameStore {
       guessedThisTurn: [],     // clear stale data from round 1's last turn
       skippedThisTurn: [],
     })
-    // clueGiverIndices[newActiveTeam] advanced above; inactive team's index unchanged
 
     logger.info('Round advanced', { joinCode, round: game.round })
 
@@ -443,8 +418,7 @@ export class InMemoryGameStore implements GameStore {
     game.guessedThisTurn = [...(game.guessedThisTurn ?? []), currentText]
 
     if (game.currentClueGiverId) {
-      const id = game.currentClueGiverId
-      game.clueGiverStats[id] = (game.clueGiverStats[id] ?? 0) + 1
+      game.roster.incrementStat(game.currentClueGiverId)
     }
 
     if (game.hat.length === 0) {
@@ -515,7 +489,7 @@ export class InMemoryGameStore implements GameStore {
     const game = this.games.get(joinCode)
     if (!game) throw new AppError('NOT_FOUND', 'Game not found')
     if (game.status !== 'lobby') throw new AppError('GAME_NOT_IN_LOBBY', 'Game is not in lobby')
-    const player = game.players.find((p) => p.id === playerId)
+    const player = game.roster.getById(playerId)
     if (!player) throw new AppError('FORBIDDEN', 'Player not in game')
     const key = `${joinCode}:${playerId}`
     const playerWords = this.words.get(key) ?? []
@@ -524,7 +498,7 @@ export class InMemoryGameStore implements GameStore {
     }
     const word: Word = { id: randomUUID(), text: text.trim() }
     this.words.set(key, [...playerWords, word])
-    player.wordCount = playerWords.length + 1
+    game.roster.updateWordCount(playerId, 1)
     this.notifySubscribers(joinCode, game)
     return { ...word }
   }
@@ -532,7 +506,7 @@ export class InMemoryGameStore implements GameStore {
   async getWords(joinCode: string, playerId: string): Promise<Word[]> {
     const game = this.games.get(joinCode)
     if (!game) throw new AppError('NOT_FOUND', 'Game not found')
-    const player = game.players.find((p) => p.id === playerId)
+    const player = game.roster.getById(playerId)
     if (!player) throw new AppError('FORBIDDEN', 'Player not in game')
     return [...(this.words.get(`${joinCode}:${playerId}`) ?? [])]
   }
@@ -541,7 +515,7 @@ export class InMemoryGameStore implements GameStore {
     const game = this.games.get(joinCode)
     if (!game) throw new AppError('NOT_FOUND', 'Game not found')
 
-    const playerNames = new Map(game.players.map((p) => [p.id, p.name]))
+    const playerNames = game.roster.getIdToNameMap()
     const prefix = `${joinCode}:`
     const grouped = new Map<string, string[]>()
 
@@ -560,7 +534,7 @@ export class InMemoryGameStore implements GameStore {
       }))
       .sort((a, b) => a.submitterName.localeCompare(b.submitterName))
 
-    const bestClueGiver = computeBestClueGiver(game.clueGiverStats, game.players)
+    const bestClueGiver = computeBestClueGiver(game.roster.getAll())
 
     return { wordsBySubmitter, bestClueGiver }
   }
@@ -569,14 +543,14 @@ export class InMemoryGameStore implements GameStore {
     const game = this.games.get(joinCode)
     if (!game) throw new AppError('NOT_FOUND', 'Game not found')
     if (game.status !== 'lobby') throw new AppError('GAME_NOT_IN_LOBBY', 'Words can only be deleted while game is in lobby')
-    const player = game.players.find((p) => p.id === playerId)
+    const player = game.roster.getById(playerId)
     if (!player) throw new AppError('FORBIDDEN', 'Player not in game')
     const key = `${joinCode}:${playerId}`
     const playerWords = this.words.get(key) ?? []
     const wordIndex = playerWords.findIndex((w) => w.id === wordId)
     if (wordIndex === -1) throw new AppError('NOT_FOUND', 'Word not found')
     this.words.set(key, playerWords.filter((w) => w.id !== wordId))
-    player.wordCount = playerWords.length - 1
+    game.roster.updateWordCount(playerId, -1)
     this.notifySubscribers(joinCode, game)
   }
 
@@ -587,7 +561,7 @@ export class InMemoryGameStore implements GameStore {
     if (game.hostId !== playerId) throw new AppError('FORBIDDEN', 'Only the host can change game settings')
 
     if (patch.wordsPerPlayer !== undefined) {
-      const hasConflict = game.players.some((p) => p.wordCount > patch.wordsPerPlayer!)
+      const hasConflict = game.roster.anyPlayerExceeds(patch.wordsPerPlayer!)
       if (hasConflict) {
         throw new AppError(
           'SETTINGS_CONFLICT',

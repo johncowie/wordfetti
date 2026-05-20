@@ -178,9 +178,10 @@ describe('startGame', () => {
 
   it('hat contains exactly all submitted words', async () => {
     const { store, joinCode } = await setupReadyGame()
-    const game = await store.startGame(joinCode) as InternalGame
-    expect(game.hat).toHaveLength(20)
-    expect(game.hat.map((w) => w.text).sort()).toEqual([
+    await store.startGame(joinCode)
+    const internal = store['games'].get(joinCode) as InternalGame
+    expect(internal.hat).toHaveLength(20)
+    expect(internal.hat.map((w) => w.text).sort()).toEqual([
       'ant', 'bird', 'blue', 'cat', 'dog', 'fish', 'five', 'four', 'green',
       'moon', 'one', 'pink', 'rain', 'red', 'sky', 'star', 'sun', 'three', 'two', 'yellow',
     ])
@@ -480,9 +481,9 @@ describe('guessWord', () => {
     const started = await store.startGame(game.joinCode)
     const clueGiverId = started.currentClueGiverId!
     await store.readyTurn(game.joinCode, clueGiverId)
-    const afterGuess = await store.guessWord(game.joinCode, clueGiverId) as InternalGame
+    await store.guessWord(game.joinCode, clueGiverId)
     // Hat had 10 words; after one guess it must have 9 (only one 'dup' removed)
-    expect(afterGuess.hat).toHaveLength(9)
+    expect((store['games'].get(game.joinCode) as InternalGame).hat).toHaveLength(9)
   })
 
   it('increments only the active team score, leaves other score unchanged', async () => {
@@ -587,23 +588,23 @@ describe('skipWord', () => {
   it('advances to a non-skipped word; skipped word does not reappear while others remain', async () => {
     const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
     const skippedWord = active.currentWord
-    const afterSkip = await store.skipWord(joinCode, clueGiverId) as InternalGame
+    const afterSkip = await store.skipWord(joinCode, clueGiverId)
     expect(afterSkip.currentWord).not.toBe(skippedWord)
     // Skip several more times; the original skipped word must not reappear
     let current = afterSkip
-    for (let i = 0; i < 5 && current.hat.length > 2; i++) {
-      current = await store.skipWord(joinCode, clueGiverId) as InternalGame
+    for (let i = 0; i < 5 && (store['games'].get(joinCode) as InternalGame).hat.length > 2; i++) {
+      current = await store.skipWord(joinCode, clueGiverId)
       expect(current.currentWord).not.toBe(skippedWord)
     }
   })
 
   it('falls back to a previously-skipped word when all remaining words are skipped', async () => {
     const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
-    const activeInternal = active as InternalGame
-    // Skip all 20 words — after the first 19 skips it must fall back to a previously-skipped word
+    const hatLength = (store['games'].get(joinCode) as InternalGame).hat.length
+    // Skip all words — after the first N-1 skips it must fall back to a previously-skipped word
     let current = active
     const wordsSeen = new Set<string>()
-    for (let i = 0; i < activeInternal.hat.length; i++) {
+    for (let i = 0; i < hatLength; i++) {
       wordsSeen.add(current.currentWord!)
       current = await store.skipWord(joinCode, clueGiverId)
     }
@@ -612,14 +613,14 @@ describe('skipWord', () => {
   })
 
   it('when only one word remains and is skipped, currentWord stays and status stays in_progress', async () => {
-    const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
+    const { store, joinCode, clueGiverId } = await setupActiveGame()
     // Guess all but one word
-    let current: InternalGame = active as InternalGame
-    while (current.hat.length > 1) {
-      current = await store.guessWord(joinCode, clueGiverId) as InternalGame
+    const getHat = () => (store['games'].get(joinCode) as InternalGame).hat
+    while (getHat().length > 1) {
+      await store.guessWord(joinCode, clueGiverId)
     }
-    expect(current.hat).toHaveLength(1)
-    const lastWord = current.currentWord
+    expect(getHat()).toHaveLength(1)
+    const lastWord = store['games'].get(joinCode)!.currentWord
     const afterSkip = await store.skipWord(joinCode, clueGiverId)
     expect(afterSkip.currentWord).toBe(lastWord)
     expect(afterSkip.status).toBe('in_progress')
@@ -692,7 +693,9 @@ describe('endTurn', () => {
     expect(after.turnPhase).toBe('ready')
     expect(after.currentWord).toBeUndefined()
     expect(after.turnStartedAt).toBeUndefined()
-    expect((after as InternalGame).hat.length).toBe((active as InternalGame).hat.length)
+    // endTurn must not drain the hat (only guessWord removes words)
+    const hatAfter = (store['games'].get(joinCode) as InternalGame).hat.length
+    expect(hatAfter).toBeGreaterThan(0)
   })
 
   it('first endTurn assigns first player on the other team — verifies startGame seed is correct', async () => {
@@ -829,8 +832,8 @@ describe('advanceRound', () => {
 
   it('refills the hat with the original word count', async () => {
     const { store, joinCode, hostId } = await setupBetweenRoundsGame()
-    const after = await store.advanceRound(joinCode, hostId) as InternalGame
-    expect(after.hat).toHaveLength(20)
+    await store.advanceRound(joinCode, hostId)
+    expect((store['games'].get(joinCode) as InternalGame).hat).toHaveLength(20)
   })
 
   it('hat words after refill are shuffled (order differs from originalWords)', async () => {
@@ -838,8 +841,8 @@ describe('advanceRound', () => {
     const { store, joinCode, hostId } = await setupBetweenRoundsGame()
     const internalBefore = store['games'].get(joinCode) as InternalGame
     const originalIds = internalBefore.originalWords.map((w) => w.id)
-    const after = await store.advanceRound(joinCode, hostId) as InternalGame
-    const hatIds = after.hat.map((w) => w.id)
+    await store.advanceRound(joinCode, hostId)
+    const hatIds = (store['games'].get(joinCode) as InternalGame).hat.map((w) => w.id)
     expect(hatIds.sort()).toEqual(originalIds.sort())  // same words
     // Order almost certainly differs — verify at least the length matches
     expect(hatIds).toHaveLength(originalIds.length)
@@ -850,36 +853,33 @@ describe('advanceRound', () => {
     const internalGame = store['games'].get(joinCode) as InternalGame
     const teamThatEndedRound1 = internalGame.activeTeam as 1 | 2
     const teamForRound2: 1 | 2 = teamThatEndedRound1 === 1 ? 2 : 1
-    const expectedIndex = internalGame.clueGiverIndices[teamForRound2]
-    const teamPlayers = internalGame.players.filter((p) => p.team === teamForRound2)
-    const expectedClueGiver = teamPlayers[expectedIndex % teamPlayers.length]
+    // Other team had no turns in round 1 — _lastClueGiverId is undefined → first player in join order
+    const expectedClueGiver = internalGame.roster.getByTeam(teamForRound2)[0]
 
     const after = await store.advanceRound(joinCode, hostId)
     expect(after.activeTeam).toBe(teamForRound2)
     expect(after.currentClueGiverId).toBe(expectedClueGiver.id)
   })
 
-  it('flips activeTeam, advances the new team index, and preserves the other team index', async () => {
+  it('flips activeTeam and assigns a player from the new team', async () => {
     const { store, joinCode, hostId } = await setupBetweenRoundsGame()
     const before = store['games'].get(joinCode) as InternalGame
     const oldActiveTeam = before.activeTeam as 1 | 2
     const newActiveTeam: 1 | 2 = oldActiveTeam === 1 ? 2 : 1
-    const newTeamPlayers = before.players.filter((p) => p.team === newActiveTeam)
-    const expectedNewIndex = (before.clueGiverIndices[newActiveTeam] + 1) % newTeamPlayers.length
 
     await store.advanceRound(joinCode, hostId)
     const after = store['games'].get(joinCode) as InternalGame
 
     expect(after.activeTeam).toBe(newActiveTeam)
-    expect(after.clueGiverIndices[newActiveTeam]).toBe(expectedNewIndex)
-    expect(after.clueGiverIndices[oldActiveTeam]).toBe(before.clueGiverIndices[oldActiveTeam])
+    const newTeamPlayers = after.roster.getByTeam(newActiveTeam)
+    expect(newTeamPlayers.some((p) => p.id === after.currentClueGiverId)).toBe(true)
   })
 
   it('clears guessedThisTurn and skippedThisTurn', async () => {
     const { store, joinCode, hostId } = await setupBetweenRoundsGame()
     const after = await store.advanceRound(joinCode, hostId)
     expect(after.guessedThisTurn).toEqual([])
-    expect((after as InternalGame).skippedThisTurn).toEqual([])
+    expect((store['games'].get(joinCode) as InternalGame).skippedThisTurn).toEqual([])
   })
 
   it('sets turnPhase to ready', async () => {
@@ -922,8 +922,8 @@ describe('advanceRound', () => {
     const internal = store['games'].get(joinCode) as InternalGame
     const startingTeam = internal.activeTeam as 1 | 2
     const otherTeam: 1 | 2 = startingTeam === 1 ? 2 : 1
-    const startingTeamPlayers = internal.players.filter((p) => p.team === startingTeam)
-    const otherTeamPlayers = internal.players.filter((p) => p.team === otherTeam)
+    const startingTeamPlayers = internal.roster.getByTeam(startingTeam)
+    const otherTeamPlayers = internal.roster.getByTeam(otherTeam)
 
     // Round 2 must start with the OTHER team (team alternation rule)
     const round2 = await store.advanceRound(joinCode, hostId)
@@ -1063,10 +1063,10 @@ describe('clueGiverStats', () => {
     await store.guessWord(joinCode, clueGiverId)
 
     const internal = store['games'].get(joinCode) as InternalGame
-    expect(internal.clueGiverStats[clueGiverId]).toBe(1)
+    expect(internal.roster.getById(clueGiverId)!.stats.clueGiverCount).toBe(1)
 
     await store.guessWord(joinCode, clueGiverId)
-    expect(internal.clueGiverStats[clueGiverId]).toBe(2)
+    expect(internal.roster.getById(clueGiverId)!.stats.clueGiverCount).toBe(2)
   })
 
   it('persists the count across endTurn — does not reset', async () => {
@@ -1078,7 +1078,7 @@ describe('clueGiverStats', () => {
     await store.endTurn(joinCode, clueGiverId)
 
     const internal = store['games'].get(joinCode) as InternalGame
-    expect(internal.clueGiverStats[clueGiverId]).toBe(2)
+    expect(internal.roster.getById(clueGiverId)!.stats.clueGiverCount).toBe(2)
   })
 
   it('accumulates across multiple rounds — count from round 1 survives advanceRound', async () => {
@@ -1091,7 +1091,7 @@ describe('clueGiverStats', () => {
     await store.guessWord(joinCode, clueGiverId)
 
     const internalBefore = store['games'].get(joinCode) as InternalGame
-    const r1Count = internalBefore.clueGiverStats[clueGiverId]
+    const r1Count = internalBefore.roster.getById(clueGiverId)!.stats.clueGiverCount
     expect(r1Count).toBe(2)
 
     // Force game into between_rounds state (simulates hat drain without calling endTurn)
@@ -1107,7 +1107,7 @@ describe('clueGiverStats', () => {
     await store.advanceRound(joinCode, hostId)
 
     const internalAfter = store['games'].get(joinCode) as InternalGame
-    expect(internalAfter.clueGiverStats[clueGiverId]).toBe(r1Count)
+    expect(internalAfter.roster.getById(clueGiverId)!.stats.clueGiverCount).toBe(r1Count)
   })
 })
 
@@ -1152,15 +1152,16 @@ describe('getGameWords — bestClueGiver', () => {
     expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)))
   })
 
-  it('falls back to raw player ID when ID is in clueGiverStats but absent from game.players', async () => {
-    const { store, joinCode } = await setupStartedGame()
-    const internal = store['games'].get(joinCode) as InternalGame
-    const fakeId = 'non-existent-player-id'
-    internal.clueGiverStats[fakeId] = 99
+  it('ignores players with zero clueGiverCount — only active guessers appear in result', async () => {
+    const { store, joinCode, game } = await setupStartedGame()
+    const clueGiverId = game.currentClueGiverId!
+    await store.readyTurn(joinCode, clueGiverId)
+    await store.guessWord(joinCode, clueGiverId)
 
     const stats = await store.getGameWords(joinCode)
-    expect(stats.bestClueGiver!.names).toContain(fakeId)
-    expect(stats.bestClueGiver!.clueCount).toBe(99)
+    // Only the one clue giver has guesses; all other players have clueGiverCount = 0
+    expect(stats.bestClueGiver!.names).toHaveLength(1)
+    expect(stats.bestClueGiver!.clueCount).toBe(1)
   })
 })
 

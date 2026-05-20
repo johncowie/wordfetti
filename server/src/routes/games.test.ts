@@ -11,14 +11,16 @@ import { AppError } from '../errors.js'
 const DEFAULT_SETTINGS = { wordsPerPlayer: 5, turnDurationSeconds: 45 }
 const DEFAULT_TEAM_NAMES = { team1: 'Team Alpha', team2: 'Team Beta' }
 
+const DEFAULT_PLAYER = { id: 'p1', name: 'Test', team: 1 as const, wordCount: 0, active: true, stats: { clueGiverCount: 0 } }
+
 const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
   createGame: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'lobby', players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES } as Game),
   createGameWithHost: async () => ({
     game: { id: 'test-id', joinCode: 'ABC123', status: 'lobby', players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES } as Game,
-    player: { id: 'p1', name: 'Test', team: 1 as const, wordCount: 0 },
+    player: DEFAULT_PLAYER,
   }),
   getGameByJoinCode: async () => null,
-  joinGame: async () => ({ id: 'p1', name: 'Test', team: 1 as const, wordCount: 0 }),
+  joinGame: async () => DEFAULT_PLAYER,
   subscribe: () => () => {},
   startGame: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES }),
   readyTurn: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], turnPhase: 'active' as const, currentWord: 'cat', settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES }),
@@ -28,10 +30,9 @@ const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
   advanceRound: async () => ({
     id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, round: 2,
     players: [], turnPhase: 'ready' as const,
-    originalWords: [{ id: 'w1', text: 'apple' }],  // must be stripped by toPublicGame
     settings: DEFAULT_SETTINGS,
     teamNames: DEFAULT_TEAM_NAMES,
-  } as any),
+  }),
   addWord: async () => ({ id: 'w1', text: 'banana' }),
   getWords: async () => [],
   getGameWords: async () => ({ wordsBySubmitter: [], bestClueGiver: null }),
@@ -511,11 +512,13 @@ describe('POST /api/games/:joinCode/ready', () => {
   })
 
   it('response body does not contain hat, skippedThisTurn, or currentWordId', async () => {
+    // The store's toPublicGame strips internal fields before returning Games.
+    // Verify the route passes through only what the store provides.
     const store = mockStore({
       readyTurn: async () => ({
         id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES,
-        hat: [{ id: 'w1', text: 'cat' }], skippedThisTurn: [], currentWordId: 'w1',
-      } as Game & { hat: unknown; skippedThisTurn: unknown; currentWordId: unknown }),
+        turnPhase: 'active' as const, currentWord: 'cat',
+      }),
     })
     const res = await request(buildApp(store)).post('/ABC123/ready').send({ playerId: 'p1' })
     expect(res.body).not.toHaveProperty('hat')
@@ -572,8 +575,8 @@ describe('POST /api/games/:joinCode/guess', () => {
     const store = mockStore({
       guessWord: async () => ({
         id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES,
-        hat: [{ id: 'w2', text: 'dog' }], skippedThisTurn: [], currentWordId: 'w2',
-      } as Game & { hat: unknown; skippedThisTurn: unknown; currentWordId: unknown }),
+        currentWord: 'dog',
+      }),
     })
     const res = await request(buildApp(store)).post('/ABC123/guess').send({ playerId: 'p1' })
     expect(res.body).not.toHaveProperty('hat')
@@ -656,8 +659,8 @@ describe('POST /api/games/:joinCode/skip', () => {
     const store = mockStore({
       skipWord: async () => ({
         id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES,
-        hat: [{ id: 'w3', text: 'fish' }], skippedThisTurn: ['w1'], currentWordId: 'w3',
-      } as Game & { hat: unknown; skippedThisTurn: unknown; currentWordId: unknown }),
+        currentWord: 'fish',
+      }),
     })
     const res = await request(buildApp(store)).post('/ABC123/skip').send({ playerId: 'p1' })
     expect(res.body).not.toHaveProperty('hat')
@@ -710,17 +713,19 @@ describe('POST /api/games/:joinCode/end-turn', () => {
     expect(res.body.turnPhase).toBe('ready')
   })
 
-  it('response body does not contain clueGiverIndices', async () => {
+  it('response body does not contain internal fields', async () => {
+    // The store's toPublicGame strips internal fields before returning Games.
+    // Verify the route passes through what the store returns without modification.
     const store = mockStore({
       endTurn: async () => ({
         id: 'test-id', joinCode: 'ABC123', status: 'in_progress' as const, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES,
         turnPhase: 'ready' as const,
-        clueGiverIndices: { 1: 1, 2: 0 },
-      } as Game & { clueGiverIndices: unknown }),
+      }),
     })
     const res = await request(buildApp(store)).post('/ABC123/end-turn').send({ playerId: 'p1' })
     expect(res.status).toBe(200)
     expect(res.body).not.toHaveProperty('clueGiverIndices')
+    expect(res.body).not.toHaveProperty('roster')
   })
 
   it('returns 400 when playerId is missing', async () => {
