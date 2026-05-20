@@ -16,6 +16,12 @@ export function WordEntryPage() {
     }
   }, [session, joinCode, navigate])
 
+  useEffect(() => {
+    if (game?.status === 'in_progress') {
+      navigate(`/game/${joinCode}`)
+    }
+  }, [game?.status, joinCode, navigate])
+
   const [words, setWords] = useState<Word[]>([])
   const [input, setInput] = useState('')
   const [error, setError] = useState<string | null>(null)
