@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import type { Game } from '@wordfetti/shared'
+import type { GameSnapshot } from '@wordfetti/shared'
 import { Logo } from '../components/Logo'
 import { TurnTimer } from '../components/TurnTimer'
 import { loadSession } from '../session'
@@ -150,7 +150,7 @@ function ClueGiverView({
   clockOffset,
   clockOffsetReady,
 }: {
-  game: Game
+  game: GameSnapshot
   joinCode: string
   playerId: string
   clockOffset: number
@@ -288,7 +288,7 @@ function WaitingView({ clueGiverName }: { clueGiverName: string }) {
   )
 }
 
-function GuesserView({ clueGiverName, game, clockOffset, clockOffsetReady }: { clueGiverName: string; game: Game; clockOffset: number; clockOffsetReady: boolean }) {
+function GuesserView({ clueGiverName, game, clockOffset, clockOffsetReady }: { clueGiverName: string; game: GameSnapshot; clockOffset: number; clockOffsetReady: boolean }) {
   return (
     <div className="mt-8 flex flex-col items-center gap-6 text-center">
       {game.turnStartedAt && (
@@ -317,7 +317,7 @@ function SpectatorView({
 }: {
   clueGiverName: string
   team: 1 | 2
-  game: Game
+  game: GameSnapshot
   clockOffset: number
   clockOffsetReady: boolean
 }) {

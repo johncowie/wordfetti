@@ -169,6 +169,45 @@ describe('PlayerRoster', () => {
     })
   })
 
+  describe('getBestClueGiver', () => {
+    it('returns null when no player has given a clue', () => {
+      const roster = new PlayerRoster()
+      roster.add(makePlayer('a', 1))
+      roster.add(makePlayer('b', 2))
+      expect(roster.getBestClueGiver()).toBeNull()
+    })
+
+    it('returns the single player with the highest count', () => {
+      const roster = new PlayerRoster()
+      roster.add({ ...makePlayer('a', 1), name: 'Alice' })
+      roster.add({ ...makePlayer('b', 2), name: 'Bob' })
+      roster.incrementStat('a')
+      roster.incrementStat('a')
+      roster.incrementStat('b')
+      const result = roster.getBestClueGiver()
+      expect(result).toEqual({ names: ['Alice'], clueCount: 2 })
+    })
+
+    it('returns multiple names sorted alphabetically on a tie', () => {
+      const roster = new PlayerRoster()
+      roster.add({ ...makePlayer('a', 1), name: 'Zelda' })
+      roster.add({ ...makePlayer('b', 2), name: 'Alice' })
+      roster.incrementStat('a')
+      roster.incrementStat('b')
+      const result = roster.getBestClueGiver()
+      expect(result).toEqual({ names: ['Alice', 'Zelda'], clueCount: 1 })
+    })
+
+    it('ignores players with zero clueGiverCount', () => {
+      const roster = new PlayerRoster()
+      roster.add({ ...makePlayer('a', 1), name: 'Alice' })
+      roster.add({ ...makePlayer('b', 2), name: 'Bob' })
+      roster.incrementStat('b')
+      const result = roster.getBestClueGiver()
+      expect(result?.names).toEqual(['Bob'])
+    })
+  })
+
   describe('assignNextClueGiver', () => {
     it('returns players in join order on first rotation', () => {
       const roster = new PlayerRoster()

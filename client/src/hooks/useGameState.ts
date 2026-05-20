@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import type { Game } from '@wordfetti/shared'
+import type { GameSnapshot } from '@wordfetti/shared'
 
 export function useGameState(joinCode: string | undefined) {
-  const [game, setGame] = useState<Game | null>(null)
+  const [game, setGame] = useState<GameSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -11,7 +11,7 @@ export function useGameState(joinCode: string | undefined) {
     fetch(`/api/games/${joinCode}`, { signal: controller.signal })
       .then((res) => {
         if (!res.ok) throw new Error(`${res.status}`)
-        return res.json() as Promise<Game>
+        return res.json() as Promise<GameSnapshot>
       })
       .then(setGame)
       .catch((err) => {
@@ -25,7 +25,7 @@ export function useGameState(joinCode: string | undefined) {
     if (!joinCode) return
     const es = new EventSource(`/api/games/${joinCode}/events`)
     es.onmessage = (event) => {
-      setGame(JSON.parse(event.data) as Game)
+      setGame(JSON.parse(event.data) as GameSnapshot)
     }
     es.onerror = (event) => {
       console.warn(`[game] SSE connection error for game ${joinCode}`, event)

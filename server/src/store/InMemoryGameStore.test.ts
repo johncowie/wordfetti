@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { InMemoryGameStore } from './InMemoryGameStore.js'
 import { pickTeamNames } from '../teamNames.js'
-import type { InternalGame } from './InMemoryGameStore.js'
-import type { Game } from '@wordfetti/shared'
+import type { GameSnapshot } from '@wordfetti/shared'
 import type { GameConfig } from '../config.js'
 
 const TEST_CONFIG: GameConfig = { wordsPerPlayer: 5, turnDurationSeconds: 45 }
@@ -164,7 +163,7 @@ describe('startGame', () => {
 
   it('notifies subscribers with the updated game', async () => {
     const { store, joinCode } = await setupReadyGame()
-    const updates: Game[] = []
+    const updates: GameSnapshot[] = []
     store.subscribe(joinCode, (g) => updates.push(g))
     await store.startGame(joinCode)
     expect(updates).toHaveLength(1)
@@ -179,9 +178,9 @@ describe('startGame', () => {
   it('hat contains exactly all submitted words', async () => {
     const { store, joinCode } = await setupReadyGame()
     await store.startGame(joinCode)
-    const internal = store['games'].get(joinCode) as InternalGame
-    expect(internal.hat).toHaveLength(20)
-    expect(internal.hat.map((w) => w.text).sort()).toEqual([
+    const internal = store['games'].get(joinCode)!
+    expect(internal.hat!.size).toBe(20)
+    expect(internal.hat!.wordTexts().sort()).toEqual([
       'ant', 'bird', 'blue', 'cat', 'dog', 'fish', 'five', 'four', 'green',
       'moon', 'one', 'pink', 'rain', 'red', 'sky', 'star', 'sun', 'three', 'two', 'yellow',
     ])
@@ -253,7 +252,7 @@ describe('addWord', () => {
     const store = new InMemoryGameStore(TEST_CONFIG)
     const game = await store.createGame()
     const player = await store.joinGame(game.joinCode, 'Alice', 1)
-    const updates: Game[] = []
+    const updates: GameSnapshot[] = []
     store.subscribe(game.joinCode, (g) => updates.push(g))
     await store.addWord(game.joinCode, player.id, 'apple')
     expect(updates).toHaveLength(1)
@@ -372,7 +371,7 @@ describe('subscribe', () => {
   it('calls the callback with the updated game when a player joins', async () => {
     const store = new InMemoryGameStore(TEST_CONFIG)
     const game = await store.createGame()
-    const updates: Game[] = []
+    const updates: GameSnapshot[] = []
     store.subscribe(game.joinCode, (g) => updates.push(g))
     await store.joinGame(game.joinCode, 'Alice', 1)
     expect(updates).toHaveLength(1)
@@ -382,7 +381,7 @@ describe('subscribe', () => {
   it('does not call the callback after unsubscribe', async () => {
     const store = new InMemoryGameStore(TEST_CONFIG)
     const game = await store.createGame()
-    const updates: Game[] = []
+    const updates: GameSnapshot[] = []
     const unsub = store.subscribe(game.joinCode, (g) => updates.push(g))
     unsub()
     await store.joinGame(game.joinCode, 'Alice', 1)
@@ -393,7 +392,7 @@ describe('subscribe', () => {
     const store = new InMemoryGameStore(TEST_CONFIG)
     const game1 = await store.createGame()
     const game2 = await store.createGame()
-    const updates: Game[] = []
+    const updates: GameSnapshot[] = []
     store.subscribe(game1.joinCode, (g) => updates.push(g))
     await store.joinGame(game2.joinCode, 'Alice', 1)
     expect(updates).toHaveLength(0)
@@ -402,7 +401,7 @@ describe('subscribe', () => {
   it('delivered snapshot is not mutated by a subsequent join', async () => {
     const store = new InMemoryGameStore(TEST_CONFIG)
     const game = await store.createGame()
-    const updates: Game[] = []
+    const updates: GameSnapshot[] = []
     store.subscribe(game.joinCode, (g) => updates.push(g))
     await store.joinGame(game.joinCode, 'Alice', 1)
     await store.joinGame(game.joinCode, 'Bob', 2)
@@ -440,7 +439,7 @@ describe('readyTurn', () => {
   it('broadcasts the updated game to subscribers', async () => {
     const { store, joinCode, game: started } = await setupStartedGame()
     const clueGiverId = started.currentClueGiverId!
-    const updates: Game[] = []
+    const updates: GameSnapshot[] = []
     store.subscribe(joinCode, (g) => updates.push(g))
     await store.readyTurn(joinCode, clueGiverId)
     expect(updates).toHaveLength(1)
@@ -483,7 +482,7 @@ describe('guessWord', () => {
     await store.readyTurn(game.joinCode, clueGiverId)
     await store.guessWord(game.joinCode, clueGiverId)
     // Hat had 10 words; after one guess it must have 9 (only one 'dup' removed)
-    expect((store['games'].get(game.joinCode) as InternalGame).hat).toHaveLength(9)
+    expect(store['games'].get(game.joinCode)!.hat!.size).toBe(9)
   })
 
   it('increments only the active team score, leaves other score unchanged', async () => {
@@ -528,8 +527,7 @@ describe('guessWord', () => {
 
   it('transitions to between_rounds when hat empties and round is 2', async () => {
     const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
-    const internalGame = store['games'].get(joinCode) as InternalGame
-    internalGame.round = 2
+    store['games'].get(joinCode)!.round = 2
     let current = active
     while (current.status === 'in_progress') {
       current = await store.guessWord(joinCode, clueGiverId)
@@ -541,8 +539,7 @@ describe('guessWord', () => {
 
   it('transitions to finished when hat empties and round is 3', async () => {
     const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
-    const internalGame = store['games'].get(joinCode) as InternalGame
-    internalGame.round = 3
+    store['games'].get(joinCode)!.round = 3
     let current = active
     while (current.status === 'in_progress') {
       current = await store.guessWord(joinCode, clueGiverId)
@@ -564,7 +561,7 @@ describe('guessWord', () => {
 
   it('broadcasts the updated game', async () => {
     const { store, joinCode, clueGiverId } = await setupActiveGame()
-    const updates: Game[] = []
+    const updates: GameSnapshot[] = []
     store.subscribe(joinCode, (g) => updates.push(g))
     await store.guessWord(joinCode, clueGiverId)
     expect(updates).toHaveLength(1)
@@ -592,7 +589,7 @@ describe('skipWord', () => {
     expect(afterSkip.currentWord).not.toBe(skippedWord)
     // Skip several more times; the original skipped word must not reappear
     let current = afterSkip
-    for (let i = 0; i < 5 && (store['games'].get(joinCode) as InternalGame).hat.length > 2; i++) {
+    for (let i = 0; i < 5 && store['games'].get(joinCode)!.hat!.size > 2; i++) {
       current = await store.skipWord(joinCode, clueGiverId)
       expect(current.currentWord).not.toBe(skippedWord)
     }
@@ -600,7 +597,7 @@ describe('skipWord', () => {
 
   it('falls back to a previously-skipped word when all remaining words are skipped', async () => {
     const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
-    const hatLength = (store['games'].get(joinCode) as InternalGame).hat.length
+    const hatLength = store['games'].get(joinCode)!.hat!.size
     // Skip all words — after the first N-1 skips it must fall back to a previously-skipped word
     let current = active
     const wordsSeen = new Set<string>()
@@ -615,12 +612,12 @@ describe('skipWord', () => {
   it('when only one word remains and is skipped, currentWord stays and status stays in_progress', async () => {
     const { store, joinCode, clueGiverId } = await setupActiveGame()
     // Guess all but one word
-    const getHat = () => (store['games'].get(joinCode) as InternalGame).hat
-    while (getHat().length > 1) {
+    const getHatSize = () => store['games'].get(joinCode)!.hat!.size
+    while (getHatSize() > 1) {
       await store.guessWord(joinCode, clueGiverId)
     }
-    expect(getHat()).toHaveLength(1)
-    const lastWord = store['games'].get(joinCode)!.currentWord
+    expect(getHatSize()).toBe(1)
+    const lastWord = store['games'].get(joinCode)!.hat!.current?.text
     const afterSkip = await store.skipWord(joinCode, clueGiverId)
     expect(afterSkip.currentWord).toBe(lastWord)
     expect(afterSkip.status).toBe('in_progress')
@@ -628,7 +625,7 @@ describe('skipWord', () => {
 
   it('broadcasts the updated game', async () => {
     const { store, joinCode, clueGiverId } = await setupActiveGame()
-    const updates: Game[] = []
+    const updates: GameSnapshot[] = []
     store.subscribe(joinCode, (g) => updates.push(g))
     await store.skipWord(joinCode, clueGiverId)
     expect(updates).toHaveLength(1)
@@ -694,7 +691,7 @@ describe('endTurn', () => {
     expect(after.currentWord).toBeUndefined()
     expect(after.turnStartedAt).toBeUndefined()
     // endTurn must not drain the hat (only guessWord removes words)
-    const hatAfter = (store['games'].get(joinCode) as InternalGame).hat.length
+    const hatAfter = store['games'].get(joinCode)!.hat!.size
     expect(hatAfter).toBeGreaterThan(0)
   })
 
@@ -743,7 +740,7 @@ describe('endTurn', () => {
 
   it('broadcasts updated game to subscribers', async () => {
     const { store, joinCode, clueGiverId } = await setupActiveGame()
-    const updates: Game[] = []
+    const updates: GameSnapshot[] = []
     store.subscribe(joinCode, (g) => updates.push(g))
     await store.endTurn(joinCode, clueGiverId)
     expect(updates).toHaveLength(1)
@@ -753,8 +750,7 @@ describe('endTurn', () => {
   it('transitions to between_rounds when hat is empty (defensive guard) and round is 1', async () => {
     const { store, joinCode, clueGiverId } = await setupActiveGame()
     // Force-empty the hat — this state is not reachable via the public API
-    const internalGame = store['games'].get(joinCode) as InternalGame
-    internalGame.hat = []
+    ;(store['games'].get(joinCode)!.hat as any)._words = []
 
     const after = await store.endTurn(joinCode, clueGiverId)
     expect(after.status).toBe('between_rounds')
@@ -763,9 +759,9 @@ describe('endTurn', () => {
 
   it('transitions to finished when hat is empty (defensive guard) and round is 3', async () => {
     const { store, joinCode, clueGiverId } = await setupActiveGame()
-    const internalGame = store['games'].get(joinCode) as InternalGame
-    internalGame.hat = []
-    internalGame.round = 3
+    const game = store['games'].get(joinCode)!
+    ;(game.hat as any)._words = []
+    game.round = 3
 
     const after = await store.endTurn(joinCode, clueGiverId)
     expect(after.status).toBe('finished')
@@ -809,8 +805,7 @@ describe('advanceRound', () => {
 
   it('sets round to 3 and status to in_progress when advancing from round 2', async () => {
     const { store, joinCode, hostId } = await setupBetweenRoundsGame()
-    const internalGame = store['games'].get(joinCode) as InternalGame
-    internalGame.round = 2
+    store['games'].get(joinCode)!.round = 2
     const after = await store.advanceRound(joinCode, hostId)
     expect(after.round).toBe(3)
     expect(after.status).toBe('in_progress')
@@ -818,8 +813,7 @@ describe('advanceRound', () => {
 
   it('throws INVALID_STATE when round is already 3', async () => {
     const { store, joinCode, hostId } = await setupBetweenRoundsGame()
-    const internalGame = store['games'].get(joinCode) as InternalGame
-    internalGame.round = 3
+    store['games'].get(joinCode)!.round = 3
     await expect(store.advanceRound(joinCode, hostId)).rejects.toMatchObject({ code: 'INVALID_STATE' })
   })
 
@@ -833,28 +827,26 @@ describe('advanceRound', () => {
   it('refills the hat with the original word count', async () => {
     const { store, joinCode, hostId } = await setupBetweenRoundsGame()
     await store.advanceRound(joinCode, hostId)
-    expect((store['games'].get(joinCode) as InternalGame).hat).toHaveLength(20)
+    expect(store['games'].get(joinCode)!.hat!.size).toBe(20)
   })
 
   it('hat words after refill are shuffled (order differs from originalWords)', async () => {
     // Probabilistic test: with 20 words the chance of identical order is 1/20! ≈ 0
     const { store, joinCode, hostId } = await setupBetweenRoundsGame()
-    const internalBefore = store['games'].get(joinCode) as InternalGame
-    const originalIds = internalBefore.originalWords.map((w) => w.id)
+    const originalTexts = store['games'].get(joinCode)!.hat!.originalWords.map((w) => w.text).sort()
     await store.advanceRound(joinCode, hostId)
-    const hatIds = (store['games'].get(joinCode) as InternalGame).hat.map((w) => w.id)
-    expect(hatIds.sort()).toEqual(originalIds.sort())  // same words
-    // Order almost certainly differs — verify at least the length matches
-    expect(hatIds).toHaveLength(originalIds.length)
+    const hatTexts = store['games'].get(joinCode)!.hat!.wordTexts().sort()
+    expect(hatTexts).toEqual(originalTexts)
+    expect(hatTexts).toHaveLength(originalTexts.length)
   })
 
   it('assigns first clue giver of new round from the OTHER team (strict alternation)', async () => {
     const { store, joinCode, hostId } = await setupBetweenRoundsGame()
-    const internalGame = store['games'].get(joinCode) as InternalGame
-    const teamThatEndedRound1 = internalGame.activeTeam as 1 | 2
+    const game = store['games'].get(joinCode)!
+    const teamThatEndedRound1 = game.activeTeam as 1 | 2
     const teamForRound2: 1 | 2 = teamThatEndedRound1 === 1 ? 2 : 1
     // Other team had no turns in round 1 — _lastClueGiverId is undefined → first player in join order
-    const expectedClueGiver = internalGame.roster.getByTeam(teamForRound2)[0]
+    const expectedClueGiver = game.roster.getByTeam(teamForRound2)[0]
 
     const after = await store.advanceRound(joinCode, hostId)
     expect(after.activeTeam).toBe(teamForRound2)
@@ -863,23 +855,22 @@ describe('advanceRound', () => {
 
   it('flips activeTeam and assigns a player from the new team', async () => {
     const { store, joinCode, hostId } = await setupBetweenRoundsGame()
-    const before = store['games'].get(joinCode) as InternalGame
+    const before = store['games'].get(joinCode)!
     const oldActiveTeam = before.activeTeam as 1 | 2
     const newActiveTeam: 1 | 2 = oldActiveTeam === 1 ? 2 : 1
 
     await store.advanceRound(joinCode, hostId)
-    const after = store['games'].get(joinCode) as InternalGame
+    const after = store['games'].get(joinCode)!
 
     expect(after.activeTeam).toBe(newActiveTeam)
     const newTeamPlayers = after.roster.getByTeam(newActiveTeam)
     expect(newTeamPlayers.some((p) => p.id === after.currentClueGiverId)).toBe(true)
   })
 
-  it('clears guessedThisTurn and skippedThisTurn', async () => {
+  it('clears guessedThisTurn', async () => {
     const { store, joinCode, hostId } = await setupBetweenRoundsGame()
     const after = await store.advanceRound(joinCode, hostId)
     expect(after.guessedThisTurn).toEqual([])
-    expect((store['games'].get(joinCode) as InternalGame).skippedThisTurn).toEqual([])
   })
 
   it('sets turnPhase to ready', async () => {
@@ -907,7 +898,7 @@ describe('advanceRound', () => {
 
   it('broadcasts updated game to subscribers with round 2 and status in_progress', async () => {
     const { store, joinCode, hostId } = await setupBetweenRoundsGame()
-    const updates: Game[] = []
+    const updates: GameSnapshot[] = []
     store.subscribe(joinCode, (g) => updates.push(g))
     await store.advanceRound(joinCode, hostId)
     expect(updates).toHaveLength(1)
@@ -919,7 +910,7 @@ describe('advanceRound', () => {
     // Round 1: only the starting clue giver goes (hat drained without endTurn)
     // Round 2 should: start with the OTHER team, continue round-robin without repeating
     const { store, joinCode, hostId } = await setupBetweenRoundsGame()
-    const internal = store['games'].get(joinCode) as InternalGame
+    const internal = store['games'].get(joinCode)!
     const startingTeam = internal.activeTeam as 1 | 2
     const otherTeam: 1 | 2 = startingTeam === 1 ? 2 : 1
     const startingTeamPlayers = internal.roster.getByTeam(startingTeam)
@@ -968,14 +959,11 @@ describe('advanceRound', () => {
     await store.endTurn(joinCode, otherTeamPlayers[0].id)
     // R1 Turn 3: A[1] starts, then round ends mid-turn (simulate hat emptying)
     await store.readyTurn(joinCode, startingTeamPlayers[1].id)
-    const internal = store['games'].get(joinCode) as InternalGame
-    Object.assign(internal, {
+    Object.assign(store['games'].get(joinCode)!, {
       status: 'between_rounds',
       currentClueGiverId: undefined,
       turnPhase: undefined,
       turnStartedAt: undefined,
-      currentWord: undefined,
-      currentWordId: undefined,
     })
 
     // advanceRound: should flip to B, pick B[1] (next in B's rotation), advance to 0
@@ -1038,7 +1026,7 @@ describe('updateSettings', () => {
   it('updates wordsPerPlayer and notifies subscribers', async () => {
     const store = new InMemoryGameStore(TEST_CONFIG)
     const { game, player: host } = await store.createGameWithHost('Alice', 1)
-    const updates: Game[] = []
+    const updates: GameSnapshot[] = []
     store.subscribe(game.joinCode, (g) => updates.push(g))
     const result = await store.updateSettings(game.joinCode, host.id, { wordsPerPlayer: 10 })
     expect(result.settings.wordsPerPlayer).toBe(10)
@@ -1062,7 +1050,7 @@ describe('clueGiverStats', () => {
     await store.readyTurn(joinCode, clueGiverId)
     await store.guessWord(joinCode, clueGiverId)
 
-    const internal = store['games'].get(joinCode) as InternalGame
+    const internal = store['games'].get(joinCode)!
     expect(internal.roster.getById(clueGiverId)!.stats.clueGiverCount).toBe(1)
 
     await store.guessWord(joinCode, clueGiverId)
@@ -1077,8 +1065,7 @@ describe('clueGiverStats', () => {
     await store.guessWord(joinCode, clueGiverId)
     await store.endTurn(joinCode, clueGiverId)
 
-    const internal = store['games'].get(joinCode) as InternalGame
-    expect(internal.roster.getById(clueGiverId)!.stats.clueGiverCount).toBe(2)
+    expect(store['games'].get(joinCode)!.roster.getById(clueGiverId)!.stats.clueGiverCount).toBe(2)
   })
 
   it('accumulates across multiple rounds — count from round 1 survives advanceRound', async () => {
@@ -1090,24 +1077,21 @@ describe('clueGiverStats', () => {
     await store.guessWord(joinCode, clueGiverId)
     await store.guessWord(joinCode, clueGiverId)
 
-    const internalBefore = store['games'].get(joinCode) as InternalGame
-    const r1Count = internalBefore.roster.getById(clueGiverId)!.stats.clueGiverCount
+    const gameBefore = store['games'].get(joinCode)!
+    const r1Count = gameBefore.roster.getById(clueGiverId)!.stats.clueGiverCount
     expect(r1Count).toBe(2)
 
     // Force game into between_rounds state (simulates hat drain without calling endTurn)
-    Object.assign(internalBefore, {
+    Object.assign(gameBefore, {
       status: 'between_rounds',
       currentClueGiverId: undefined,
       turnPhase: undefined,
       turnStartedAt: undefined,
-      currentWord: undefined,
-      currentWordId: undefined,
     })
 
     await store.advanceRound(joinCode, hostId)
 
-    const internalAfter = store['games'].get(joinCode) as InternalGame
-    expect(internalAfter.roster.getById(clueGiverId)!.stats.clueGiverCount).toBe(r1Count)
+    expect(store['games'].get(joinCode)!.roster.getById(clueGiverId)!.stats.clueGiverCount).toBe(r1Count)
   })
 })
 
@@ -1231,7 +1215,7 @@ describe('updateTeamName', () => {
   it('renames team 1 and broadcasts the change', async () => {
     const store = new InMemoryGameStore(TEST_CONFIG, ['Alpha', 'Beta'])
     const { game, player: host } = await store.createGameWithHost('Alice', 1)
-    const events: Game[] = []
+    const events: GameSnapshot[] = []
     store.subscribe(game.joinCode, (g) => events.push(g))
 
     const updated = await store.updateTeamName(game.joinCode, host.id, 1, 'Red Dragons')
@@ -1242,7 +1226,7 @@ describe('updateTeamName', () => {
   it('renames team 2 and broadcasts the change', async () => {
     const store = new InMemoryGameStore(TEST_CONFIG, ['Alpha', 'Beta'])
     const { game, player: host } = await store.createGameWithHost('Alice', 1)
-    const events: Game[] = []
+    const events: GameSnapshot[] = []
     store.subscribe(game.joinCode, (g) => events.push(g))
 
     const updated = await store.updateTeamName(game.joinCode, host.id, 2, 'Blue Tigers')

@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import type { Game } from '@wordfetti/shared'
+import type { GameSnapshot } from '@wordfetti/shared'
 import { loadSession } from '../session'
 
 export function ResultsPage() {
   const { joinCode } = useParams<{ joinCode: string }>()
   const location = useLocation()
   const navigate = useNavigate()
-  const [game, setGame] = useState<Game | null>(
-    (location.state as { game?: Game } | null)?.game ?? null
+  const [game, setGame] = useState<GameSnapshot | null>(
+    (location.state as { game?: GameSnapshot } | null)?.game ?? null
   )
   const [error, setError] = useState<string | null>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
@@ -18,7 +18,7 @@ export function ResultsPage() {
     if (game || !joinCode) return
     const controller = new AbortController()
     fetch(`/api/games/${joinCode}`, { signal: controller.signal })
-      .then((res) => { if (!res.ok) throw new Error(`${res.status}`); return res.json() as Promise<Game> })
+      .then((res) => { if (!res.ok) throw new Error(`${res.status}`); return res.json() as Promise<GameSnapshot> })
       .then(setGame)
       .catch((err) => { if (err.name === 'AbortError') return; setError('Could not load results.') })
     return () => controller.abort()

@@ -1,4 +1,4 @@
-import type { Game, GameSettings, GameStats, Player, Team, Word } from '@wordfetti/shared'
+import type { GameSnapshot, GameSettings, GameStats, Player, Team, Word } from '@wordfetti/shared'
 
 export type GameStoreStats = {
   games: number
@@ -11,9 +11,9 @@ export type GameStoreStats = {
 export interface GameStore {
   getTeamNamePreview(): { team1: string; team2: string }
   getStats(): GameStoreStats
-  createGame(teamNames?: { team1: string; team2: string }): Promise<Game>
-  createGameWithHost(name: string, team: Team, teamNames?: { team1: string; team2: string }): Promise<{ game: Game; player: Player }>
-  getGameByJoinCode(joinCode: string): Promise<Game | null>
+  createGame(teamNames?: { team1: string; team2: string }): Promise<GameSnapshot>
+  createGameWithHost(name: string, team: Team, teamNames?: { team1: string; team2: string }): Promise<{ game: GameSnapshot; player: Player }>
+  getGameByJoinCode(joinCode: string): Promise<GameSnapshot | null>
   /**
    * @throws AppError('NOT_FOUND') if the game does not exist
    * @throws AppError('GAME_IN_PROGRESS') if the game has already started
@@ -21,17 +21,17 @@ export interface GameStore {
    *   in the lobby (normalised = trimmed, lowercased, internal whitespace collapsed to single space)
    */
   joinGame(joinCode: string, name: string, team: Team): Promise<Player>
-  subscribe(joinCode: string, callback: (game: Game) => void): () => void
-  startGame(joinCode: string): Promise<Game>
-  readyTurn(joinCode: string, playerId: string): Promise<Game>
-  endTurn(joinCode: string, playerId: string): Promise<Game>
-  advanceRound(joinCode: string, playerId: string): Promise<Game>
-  guessWord(joinCode: string, playerId: string): Promise<Game>
-  skipWord(joinCode: string, playerId: string): Promise<Game>
+  subscribe(joinCode: string, callback: (game: GameSnapshot) => void): () => void
+  startGame(joinCode: string): Promise<GameSnapshot>
+  readyTurn(joinCode: string, playerId: string): Promise<GameSnapshot>
+  endTurn(joinCode: string, playerId: string): Promise<GameSnapshot>
+  advanceRound(joinCode: string, playerId: string): Promise<GameSnapshot>
+  guessWord(joinCode: string, playerId: string): Promise<GameSnapshot>
+  skipWord(joinCode: string, playerId: string): Promise<GameSnapshot>
   addWord(joinCode: string, playerId: string, text: string): Promise<Word>
   getWords(joinCode: string, playerId: string): Promise<Word[]>
   getGameWords(joinCode: string): Promise<GameStats>
   deleteWord(joinCode: string, playerId: string, wordId: string): Promise<void>
-  updateSettings(joinCode: string, playerId: string, patch: Partial<GameSettings>): Promise<Game>
-  updateTeamName(joinCode: string, playerId: string, team: 1 | 2, name: string): Promise<Game>
+  updateSettings(joinCode: string, playerId: string, patch: Partial<GameSettings>): Promise<GameSnapshot>
+  updateTeamName(joinCode: string, playerId: string, team: 1 | 2, name: string): Promise<GameSnapshot>
 }

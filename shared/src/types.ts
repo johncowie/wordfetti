@@ -37,7 +37,7 @@ export type Player = {
   }
 }
 
-export type Game = {
+export type GameSnapshot = {
   id: string
   joinCode: string
   status: 'lobby' | 'in_progress' | 'between_rounds' | 'finished'

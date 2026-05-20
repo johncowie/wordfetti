@@ -1,4 +1,4 @@
-import type { Player, Team } from '@wordfetti/shared'
+import type { BestClueGiver, Player, Team } from '@wordfetti/shared'
 
 export function normaliseName(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, ' ')
@@ -73,6 +73,17 @@ export class PlayerRoster {
 
   resetStats(): void {
     for (const player of this._players) player.stats.clueGiverCount = 0
+  }
+
+  getBestClueGiver(): BestClueGiver | null {
+    const withStats = this._players.filter((p) => p.stats.clueGiverCount > 0)
+    if (withStats.length === 0) return null
+    const max = Math.max(...withStats.map((p) => p.stats.clueGiverCount))
+    const names = withStats
+      .filter((p) => p.stats.clueGiverCount === max)
+      .map((p) => p.name)
+      .sort((a, b) => a.localeCompare(b))
+    return { names, clueCount: max }
   }
 
   /**

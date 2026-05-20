@@ -5,7 +5,7 @@ import http from 'http'
 import type { AddressInfo } from 'net'
 import { createGamesRouter } from './games.js'
 import type { GameStore } from '../store/GameStore.js'
-import type { Game } from '@wordfetti/shared'
+import type { GameSnapshot } from '@wordfetti/shared'
 import { AppError } from '../errors.js'
 
 const DEFAULT_SETTINGS = { wordsPerPlayer: 5, turnDurationSeconds: 45 }
@@ -14,9 +14,9 @@ const DEFAULT_TEAM_NAMES = { team1: 'Team Alpha', team2: 'Team Beta' }
 const DEFAULT_PLAYER = { id: 'p1', name: 'Test', team: 1 as const, wordCount: 0, active: true, stats: { clueGiverCount: 0 } }
 
 const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
-  createGame: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'lobby', players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES } as Game),
+  createGame: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'lobby', players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES } as GameSnapshot),
   createGameWithHost: async () => ({
-    game: { id: 'test-id', joinCode: 'ABC123', status: 'lobby', players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES } as Game,
+    game: { id: 'test-id', joinCode: 'ABC123', status: 'lobby', players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES } as GameSnapshot,
     player: DEFAULT_PLAYER,
   }),
   getGameByJoinCode: async () => null,
@@ -108,7 +108,7 @@ describe('POST /api/games — with host body', () => {
 describe('POST /api/games — with teamNames body', () => {
   it('passes teamNames to createGameWithHost when valid', async () => {
     const createGameWithHost = vi.fn().mockResolvedValue({
-      game: { id: 'g1', joinCode: 'ABC123', status: 'lobby', players: [], settings: DEFAULT_SETTINGS, teamNames: { team1: 'Sharks', team2: 'Jets' } } as Game,
+      game: { id: 'g1', joinCode: 'ABC123', status: 'lobby', players: [], settings: DEFAULT_SETTINGS, teamNames: { team1: 'Sharks', team2: 'Jets' } } as GameSnapshot,
       player: { id: 'p1', name: 'Alice', team: 1 as const, wordCount: 0 },
     })
     const store = mockStore({ createGameWithHost })
@@ -975,7 +975,7 @@ describe('PATCH /api/games/:joinCode/settings', () => {
 
 describe('PATCH /api/games/:joinCode/team-name', () => {
   const hostId = 'host-player-id'
-  const updatedGame: Game = {
+  const updatedGame: GameSnapshot = {
     id: 'test-id', joinCode: 'ABC123', status: 'lobby', players: [],
     settings: DEFAULT_SETTINGS, teamNames: { team1: 'Red Dragons', team2: 'Team Beta' },
   }
