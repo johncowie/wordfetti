@@ -19,6 +19,7 @@ Arguments:
 Options:
   --url <baseUrl>       Base URL of the running server
                         (default: http://localhost:5173)
+  --bots <n>            Number of bot players to join (default: 3)
   --turn-delay <ms>     Milliseconds to wait between each guess/skip action
                         (default: 500)
   --skip-chance <%>     Probability (0–100) that a bot skips instead of guessing
@@ -27,6 +28,7 @@ Options:
 
 Examples:
   pnpm zombie ABC123
+  pnpm zombie ABC123 --bots 5
   pnpm zombie ABC123 --turn-delay 100 --skip-chance 0   # empty hat fast
   pnpm zombie ABC123 --skip-chance 100                  # only skips, turns end via timer
   pnpm zombie ABC123 --url http://localhost:3000
@@ -37,6 +39,7 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     url:           { type: 'string',  default: 'http://localhost:5173' },
+    bots:          { type: 'string',  default: '3' },
     'turn-delay':  { type: 'string',  default: '500' },
     'skip-chance': { type: 'string',  default: '10' },
     help:          { type: 'boolean', short: 'h', default: false },
@@ -56,9 +59,15 @@ if (!joinCode) {
 }
 
 const BASE_URL    = (values.url as string).replace(/\/$/, '')
+const BOT_COUNT   = parseInt(values.bots as string, 10)
 const TURN_DELAY  = parseInt(values['turn-delay'] as string, 10)
 const SKIP_CHANCE = parseInt(values['skip-chance'] as string, 10)
 
+if (isNaN(BOT_COUNT) || BOT_COUNT < 1) {
+  console.error('Error: --bots must be a positive integer\n')
+  console.error(HELP)
+  process.exit(1)
+}
 if (isNaN(TURN_DELAY) || TURN_DELAY < 0) {
   console.error('Error: --turn-delay must be a non-negative integer (milliseconds)\n')
   console.error(HELP)
@@ -163,7 +172,7 @@ async function main() {
   // Join as 3 bots with greedy team balancing
   let gamePlayers = initialGame.players
 
-  for (let i = 1; i <= 3; i++) {
+  for (let i = 1; i <= BOT_COUNT; i++) {
     const team1Count = gamePlayers.filter(p => p.team === 1).length
     const team2Count = gamePlayers.filter(p => p.team === 2).length
     const team: Team = team2Count < team1Count ? 2 : 1
