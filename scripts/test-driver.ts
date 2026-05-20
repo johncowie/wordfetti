@@ -115,6 +115,33 @@ function sleep(ms: number): Promise<void> {
 let currentGame: Game | null = null
 let drivingTurn = false
 const bots: Map<string, Player> = new Map()
+const wordsSubmitted: Map<string, number> = new Map()
+const toppingUp: Set<string> = new Set()
+
+// ── Word submission ───────────────────────────────────────────────────────────
+
+async function topUpWords(bot: Player, target: number): Promise<void> {
+  const from = wordsSubmitted.get(bot.id) ?? 0
+  if (target <= from) return
+  console.log(`[zombie] ${bot.name} submitting words ${from + 1}–${target}`)
+  let submitted = from
+  for (let w = from; w < target; w++) {
+    try {
+      await post('/words', { playerId: bot.id, text: randomWord() })
+      submitted++
+      wordsSubmitted.set(bot.id, submitted)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('409')) {
+        console.log(`[zombie] ${bot.name} hit server word limit at word ${submitted + 1}, stopping`)
+        wordsSubmitted.set(bot.id, target)
+        break
+      }
+      throw err
+    }
+  }
+  console.log(`[zombie] ${bot.name} has ${wordsSubmitted.get(bot.id)} words submitted`)
+}
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
@@ -149,6 +176,11 @@ async function main() {
     console.log(`[zombie] ${name} joined team ${team} (id: ${bot.id})`)
   }
 
+  // Wait for the host client's auto-calculation of wordsPerPlayer to settle —
+  // it fires asynchronously in response to the player count changing, so a
+  // bare re-fetch immediately after the last join can still read the old value.
+  await sleep(500)
+
   // Re-fetch game state after all bots have joined so wordsPerPlayer reflects
   // any auto-calculation the host client triggered when the player count changed.
   const postJoinRes = await fetch(apiUrl(''))
@@ -162,19 +194,7 @@ async function main() {
   // Submit words for each bot
   await Promise.all(
     Array.from(bots.values()).map(async bot => {
-      for (let w = 0; w < wordsPerPlayer; w++) {
-        try {
-          await post('/words', { playerId: bot.id, text: randomWord() })
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err)
-          if (msg.includes('409')) {
-            console.log(`[zombie] ${bot.name} hit word limit at word ${w + 1}, stopping`)
-            break
-          }
-          throw err
-        }
-      }
-      console.log(`[zombie] ${bot.name} submitted words`)
+      await topUpWords(bot, wordsPerPlayer)
     })
   )
 
@@ -185,6 +205,19 @@ async function main() {
     const game: Game = JSON.parse(event.data)
     const prev = currentGame
     currentGame = game
+
+    // While in lobby, keep each bot topped up if wordsPerPlayer increases.
+    if (game.status === 'lobby') {
+      const target = game.settings.wordsPerPlayer
+      for (const [botId, bot] of bots) {
+        const submitted = wordsSubmitted.get(botId) ?? 0
+        if (target > submitted && !toppingUp.has(botId)) {
+          toppingUp.add(botId)
+          topUpWords(bot, target).finally(() => toppingUp.delete(botId))
+        }
+      }
+      return
+    }
 
     if (game.status === 'finished') {
       console.log(`[zombie] Game finished! Scores — ${game.teamNames.team1}: ${game.scores?.team1 ?? 0}, ${game.teamNames.team2}: ${game.scores?.team2 ?? 0}`)
