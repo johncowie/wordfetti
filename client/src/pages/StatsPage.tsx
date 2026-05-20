@@ -1,6 +1,49 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import type { BestClueGiver, GameStats } from '@wordfetti/shared'
+import type { BestClueGiver, GameStats, SubmitterWords } from '@wordfetti/shared'
+
+type Duplication = {
+  word: string
+  count: number
+  players: string[]
+}
+
+function computeDuplications(wordsBySubmitter: SubmitterWords[]): Duplication[] {
+  const wordToPlayers = new Map<string, string[]>()
+  const wordToDisplay = new Map<string, string>()
+  for (const { submitterName, words } of wordsBySubmitter) {
+    for (const raw of words) {
+      const key = raw.trim().toLowerCase()
+      const existing = wordToPlayers.get(key) ?? []
+      wordToPlayers.set(key, [...existing, submitterName])
+      if (!wordToDisplay.has(key)) wordToDisplay.set(key, raw.trim())
+    }
+  }
+  return [...wordToPlayers.entries()]
+    .filter(([, players]) => players.length >= 2)
+    .map(([key, players]) => ({ word: wordToDisplay.get(key)!, count: players.length, players }))
+    .sort((a, b) => b.count - a.count || a.word.localeCompare(b.word))
+}
+
+function DuplicationsSection({ wordsBySubmitter }: { wordsBySubmitter: SubmitterWords[] }) {
+  const duplications = computeDuplications(wordsBySubmitter)
+  if (duplications.length === 0) return null
+  return (
+    <section className="w-full max-w-md rounded-2xl bg-brand-muted px-6 py-6">
+      <p className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-400">Duplications</p>
+      <div className="flex flex-col gap-4">
+        {duplications.map(({ word, count, players }) => (
+          <div key={word}>
+            <p className="text-sm font-semibold text-gray-900">
+              {word} — {count}
+            </p>
+            <p className="text-xs text-gray-500">{players.join(', ')}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
 
 function BestClueGiverSection({ bestClueGiver }: { bestClueGiver: BestClueGiver | null }) {
   if (!bestClueGiver) return null
@@ -59,6 +102,8 @@ export function StatsPage() {
       <h1 className="text-3xl font-bold text-gray-900">Game Stats</h1>
 
       <BestClueGiverSection bestClueGiver={stats.bestClueGiver} />
+
+      <DuplicationsSection wordsBySubmitter={stats.wordsBySubmitter} />
 
       {stats.wordsBySubmitter.length === 0 ? (
         <p className="text-gray-400">No words were submitted for this game.</p>
