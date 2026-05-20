@@ -168,7 +168,7 @@ describe('GET /api/games/:joinCode', () => {
 
 describe('POST /api/games/:joinCode/players', () => {
   it('returns 201 with the new player', async () => {
-    const player = { id: 'p1', name: 'Alice', team: 1 as const, wordCount: 0 }
+    const player = { id: 'p1', name: 'Alice', team: 1 as const, wordCount: 0, active: true, stats: { clueGiverCount: 0 } }
     const store = mockStore({ joinGame: async () => player })
     const res = await request(buildApp(store))
       .post('/ABC123/players')
@@ -180,7 +180,7 @@ describe('POST /api/games/:joinCode/players', () => {
   it('trims whitespace from name before storing', async () => {
     let receivedName = ''
     const store = mockStore({
-      joinGame: async (_code, name) => { receivedName = name; return { id: 'p1', name, team: 1 as const, wordCount: 0 } },
+      joinGame: async (_code, name) => { receivedName = name; return { id: 'p1', name, team: 1 as const, wordCount: 0, active: true, stats: { clueGiverCount: 0 } } },
     })
     await request(buildApp(store)).post('/ABC123/players').send({ name: '  Alice  ', team: 1 })
     expect(receivedName).toBe('Alice')
@@ -254,10 +254,10 @@ describe('POST /api/games/:joinCode/start', () => {
     joinCode: 'ABC123',
     status: 'lobby' as const,
     players: [
-      { id: hostId, name: 'Alice', team: 1 as const, wordCount: 5 },
-      { id: 'p2', name: 'Bob', team: 1 as const, wordCount: 5 },
-      { id: 'p3', name: 'Carol', team: 2 as const, wordCount: 5 },
-      { id: 'p4', name: 'Dave', team: 2 as const, wordCount: 5 },
+      { id: hostId, name: 'Alice', team: 1 as const, wordCount: 5, active: true, stats: { clueGiverCount: 0 } },
+      { id: 'p2', name: 'Bob', team: 1 as const, wordCount: 5, active: true, stats: { clueGiverCount: 0 } },
+      { id: 'p3', name: 'Carol', team: 2 as const, wordCount: 5, active: true, stats: { clueGiverCount: 0 } },
+      { id: 'p4', name: 'Dave', team: 2 as const, wordCount: 5, active: true, stats: { clueGiverCount: 0 } },
     ],
     hostId,
     settings: DEFAULT_SETTINGS,
@@ -290,8 +290,8 @@ describe('POST /api/games/:joinCode/start', () => {
     const shortGame = {
       ...baseGame,
       players: [
-        { id: hostId, name: 'Alice', team: 1 as const, wordCount: 0 },
-        { id: 'p3', name: 'Carol', team: 2 as const, wordCount: 0 },
+        { id: hostId, name: 'Alice', team: 1 as const, wordCount: 0, active: true, stats: { clueGiverCount: 0 } },
+        { id: 'p3', name: 'Carol', team: 2 as const, wordCount: 0, active: true, stats: { clueGiverCount: 0 } },
       ],
     }
     const store = mockStore({ getGameByJoinCode: async () => shortGame })
@@ -305,10 +305,10 @@ describe('POST /api/games/:joinCode/start', () => {
     const pendingGame = {
       ...baseGame,
       players: [
-        { id: hostId, name: 'Alice', team: 1 as const, wordCount: 5 },
-        { id: 'p2',   name: 'Bob',   team: 1 as const, wordCount: 3 },
-        { id: 'p3',   name: 'Carol', team: 2 as const, wordCount: 5 },
-        { id: 'p4',   name: 'Dave',  team: 2 as const, wordCount: 5 },
+        { id: hostId, name: 'Alice', team: 1 as const, wordCount: 5, active: true, stats: { clueGiverCount: 0 } },
+        { id: 'p2',   name: 'Bob',   team: 1 as const, wordCount: 3, active: true, stats: { clueGiverCount: 0 } },
+        { id: 'p3',   name: 'Carol', team: 2 as const, wordCount: 5, active: true, stats: { clueGiverCount: 0 } },
+        { id: 'p4',   name: 'Dave',  team: 2 as const, wordCount: 5, active: true, stats: { clueGiverCount: 0 } },
       ],
     }
     const store = mockStore({ getGameByJoinCode: async () => pendingGame })
