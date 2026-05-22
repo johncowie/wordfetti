@@ -4,6 +4,8 @@ import { AppError } from '../errors.js'
 import { logger } from '../logger.js'
 import { Hat } from './Hat.js'
 import { PlayerRoster } from './PlayerRoster.js'
+import { EnteredWords } from './EnteredWords.js'
+import { computeWordDifficulty } from '../stats/computeWordDifficulty.js'
 
 export class GameSession {
   readonly id: string
@@ -23,9 +25,12 @@ export class GameSession {
   settings: GameSettings
 
   private _hat?: Hat
+  private readonly _enteredWords = new EnteredWords()
 
-  /** Exposed for test introspection and store word assembly. Not part of the public game API. */
+  /** Exposed for test introspection. Not part of the public game API. */
   get hat(): Hat | undefined { return this._hat }
+
+  get enteredWordCount(): number { return this._enteredWords.total() }
 
   constructor(params: {
     id: string
@@ -47,14 +52,31 @@ export class GameSession {
     return this.roster.add({ id: randomUUID(), name, team, wordCount: 0 })
   }
 
-  start(words: Word[]): void {
+  addWord(playerId: string, text: string): Word {
+    if (this.status !== 'lobby') throw new AppError('GAME_NOT_IN_LOBBY', 'Game is not in lobby')
+    if (!this.roster.getById(playerId)) throw new AppError('FORBIDDEN', 'Player not in game')
+    return this._enteredWords.add(playerId, text, this.settings.wordsPerPlayer)
+  }
+
+  deleteWord(playerId: string, wordId: string): void {
+    if (this.status !== 'lobby') throw new AppError('GAME_NOT_IN_LOBBY', 'Words can only be deleted while game is in lobby')
+    if (!this.roster.getById(playerId)) throw new AppError('FORBIDDEN', 'Player not in game')
+    this._enteredWords.delete(playerId, wordId)
+  }
+
+  getWords(playerId: string): Word[] {
+    if (!this.roster.getById(playerId)) throw new AppError('FORBIDDEN', 'Player not in game')
+    return this._enteredWords.get(playerId)
+  }
+
+  start(): void {
     const activeTeam: 1 | 2 = Math.random() < 0.5 ? 1 : 2
     this.roster.resetStats()
     if (this.roster.getByTeam(activeTeam).length === 0) {
       throw new AppError('INVALID_STATE', 'No players on the active team')
     }
     const firstClueGiver = this.roster.assignNextClueGiver(activeTeam)
-    this._hat = new Hat(words)
+    this._hat = new Hat(this._enteredWords.toWordList())
     this.status = 'in_progress'
     this.round = 1
     this.activeTeam = activeTeam
@@ -197,7 +219,7 @@ export class GameSession {
   updateSettings(playerId: string, patch: Partial<GameSettings>): void {
     if (this.status !== 'lobby') throw new AppError('INVALID_STATE', 'Settings can only be changed while the game is in the lobby')
     if (this.hostId !== playerId) throw new AppError('FORBIDDEN', 'Only the host can change game settings')
-    if (patch.wordsPerPlayer !== undefined && this.roster.anyPlayerExceeds(patch.wordsPerPlayer)) {
+    if (patch.wordsPerPlayer !== undefined && this._enteredWords.anyExceedsLimit(patch.wordsPerPlayer)) {
       throw new AppError(
         'SETTINGS_CONFLICT',
         `Cannot reduce to ${patch.wordsPerPlayer} — one or more players have already submitted more words`,
@@ -222,12 +244,22 @@ export class GameSession {
       : { team1: this.teamNames.team1, team2: trimmed }
   }
 
+  wordStats(): { wordsBySubmitter: Array<{ submitterName: string; words: string[] }>; wordDifficulty: ReturnType<typeof computeWordDifficulty> } {
+    const playerNames = this.roster.getIdToNameMap()
+    const wordsBySubmitter = this._enteredWords.groupedByPlayer(playerNames)
+    const wordDifficulty = computeWordDifficulty(this._hat?.wordStats ?? [])
+    return { wordsBySubmitter, wordDifficulty }
+  }
+
   snapshot(): GameSnapshot {
     return {
       id: this.id,
       joinCode: this.joinCode,
       status: this.status,
-      players: this.roster.getAll(),
+      players: this.roster.getAll().map((p) => ({
+        ...p,
+        wordCount: this._enteredWords.getCount(p.id),
+      })),
       hostId: this.hostId,
       teamNames: this.teamNames,
       settings: this.settings,

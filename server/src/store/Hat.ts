@@ -46,10 +46,6 @@ export class Hat {
     return this._words.map((w) => w.text)
   }
 
-  get originalWords(): Word[] {
-    return this._originalWords.map(({ id, text }) => ({ id, text }))
-  }
-
   /** Returns per-word timing data accumulated across all rounds. */
   get wordStats(): ReadonlyArray<{ id: string; text: string; guessTimes: number[] }> {
     return this._originalWords.map(({ id, text, guessTimes }) => ({

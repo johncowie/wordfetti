@@ -41,10 +41,6 @@ export class PlayerRoster {
     return this._players.some((p) => normaliseName(p.name) === normalised)
   }
 
-  anyPlayerExceeds(wordCount: number): boolean {
-    return this._players.some((p) => p.wordCount > wordCount)
-  }
-
   getIdToNameMap(): Map<string, string> {
     return new Map(this._players.map((p) => [p.id, p.name]))
   }
@@ -59,11 +55,6 @@ export class PlayerRoster {
   kick(playerId: string): void {
     const player = this._players.find((p) => p.id === playerId)
     if (player) player.active = false
-  }
-
-  updateWordCount(playerId: string, delta: number): void {
-    const player = this._players.find((p) => p.id === playerId)
-    if (player) player.wordCount += delta
   }
 
   incrementStat(playerId: string): void {

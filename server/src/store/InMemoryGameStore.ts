@@ -7,7 +7,6 @@ import { pickTeamNames } from '../teamNames.js'
 import { AppError } from '../errors.js'
 import { logger } from '../logger.js'
 import { GameSession } from './Game.js'
-import { computeWordDifficulty } from '../stats/computeWordDifficulty.js'
 
 const MAX_JOIN_CODE_ATTEMPTS = 10
 const STALE_GAME_TTL_MS = 8 * 60 * 60 * 1000
@@ -16,7 +15,6 @@ const CLEANUP_INTERVAL_MS = 60 * 60 * 1000
 export class InMemoryGameStore implements GameStore {
   private readonly games = new Map<string, GameSession>()
   private readonly subscribers = new Map<string, Set<(game: GameSnapshot) => void>>()
-  private readonly words = new Map<string, Word[]>()
   private readonly gameUpdatedAt = new Map<string, number>()
   private lastCleanupAt: string | null = null
   private lastCleanupRemovedCount = 0
@@ -37,7 +35,7 @@ export class InMemoryGameStore implements GameStore {
 
   getStats(): GameStoreStats {
     let words = 0
-    for (const playerWords of this.words.values()) words += playerWords.length
+    for (const game of this.games.values()) words += game.enteredWordCount
     let subscribers = 0
     for (const gameSubscribers of this.subscribers.values()) subscribers += gameSubscribers.size
     return {
@@ -69,9 +67,6 @@ export class InMemoryGameStore implements GameStore {
     this.games.delete(joinCode)
     this.subscribers.delete(joinCode)
     this.gameUpdatedAt.delete(joinCode)
-    for (const key of this.words.keys()) {
-      if (key.startsWith(`${joinCode}:`)) this.words.delete(key)
-    }
     logger.info('Game removed from in-memory store', { joinCode, reason, ...this.getStats() })
   }
 
@@ -141,10 +136,7 @@ export class InMemoryGameStore implements GameStore {
 
   async startGame(joinCode: string): Promise<GameSnapshot> {
     const game = this.requireGame(joinCode)
-    const allWords: Word[] = game.roster.getActive().flatMap((p) =>
-      this.words.get(`${joinCode}:${p.id}`) ?? []
-    )
-    game.start(allWords)
+    game.start()
     this.touch(joinCode)
     return this.notifyAndReturn(joinCode, game)
   }
@@ -208,17 +200,7 @@ export class InMemoryGameStore implements GameStore {
 
   async addWord(joinCode: string, playerId: string, text: string): Promise<Word> {
     const game = this.requireGame(joinCode)
-    if (game.status !== 'lobby') throw new AppError('GAME_NOT_IN_LOBBY', 'Game is not in lobby')
-    const player = game.roster.getById(playerId)
-    if (!player) throw new AppError('FORBIDDEN', 'Player not in game')
-    const key = `${joinCode}:${playerId}`
-    const playerWords = this.words.get(key) ?? []
-    if (playerWords.length >= game.settings.wordsPerPlayer) {
-      throw new AppError('WORD_LIMIT_REACHED', `You can only submit ${game.settings.wordsPerPlayer} words`)
-    }
-    const word: Word = { id: randomUUID(), text: text.trim() }
-    this.words.set(key, [...playerWords, word])
-    game.roster.updateWordCount(playerId, 1)
+    const word = game.addWord(playerId, text)
     this.touch(joinCode)
     this.notifyAndReturn(joinCode, game)
     return { ...word }
@@ -226,49 +208,18 @@ export class InMemoryGameStore implements GameStore {
 
   async getWords(joinCode: string, playerId: string): Promise<Word[]> {
     const game = this.requireGame(joinCode)
-    const player = game.roster.getById(playerId)
-    if (!player) throw new AppError('FORBIDDEN', 'Player not in game')
-    return [...(this.words.get(`${joinCode}:${playerId}`) ?? [])]
+    return game.getWords(playerId)
   }
 
   async getGameWords(joinCode: string): Promise<GameStats> {
     const game = this.requireGame(joinCode)
-    const playerNames = game.roster.getIdToNameMap()
-    const prefix = `${joinCode}:`
-    const grouped = new Map<string, string[]>()
-
-    for (const [key, words] of this.words.entries()) {
-      if (!key.startsWith(prefix)) continue
-      const playerId = key.slice(prefix.length)
-      const name = playerNames.get(playerId)
-      if (!name) continue
-      grouped.set(name, words.map((w) => w.text))
-    }
-
-    const wordsBySubmitter = [...grouped.entries()]
-      .map(([submitterName, words]) => ({
-        submitterName,
-        words: [...words].sort((a, b) => a.localeCompare(b)),
-      }))
-      .sort((a, b) => a.submitterName.localeCompare(b.submitterName))
-
-    const hatWordStats = game.hat?.wordStats ?? []
-    const wordDifficulty = computeWordDifficulty(hatWordStats)
-
+    const { wordsBySubmitter, wordDifficulty } = game.wordStats()
     return { wordsBySubmitter, bestClueGiver: game.roster.getBestClueGiver(), wordDifficulty }
   }
 
   async deleteWord(joinCode: string, playerId: string, wordId: string): Promise<void> {
     const game = this.requireGame(joinCode)
-    if (game.status !== 'lobby') throw new AppError('GAME_NOT_IN_LOBBY', 'Words can only be deleted while game is in lobby')
-    const player = game.roster.getById(playerId)
-    if (!player) throw new AppError('FORBIDDEN', 'Player not in game')
-    const key = `${joinCode}:${playerId}`
-    const playerWords = this.words.get(key) ?? []
-    const wordIndex = playerWords.findIndex((w) => w.id === wordId)
-    if (wordIndex === -1) throw new AppError('NOT_FOUND', 'Word not found')
-    this.words.set(key, playerWords.filter((w) => w.id !== wordId))
-    game.roster.updateWordCount(playerId, -1)
+    game.deleteWord(playerId, wordId)
     this.touch(joinCode)
     this.notifyAndReturn(joinCode, game)
   }

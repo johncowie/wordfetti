@@ -833,7 +833,7 @@ describe('advanceRound', () => {
   it('hat words after refill are shuffled (order differs from originalWords)', async () => {
     // Probabilistic test: with 20 words the chance of identical order is 1/20! ≈ 0
     const { store, joinCode, hostId } = await setupBetweenRoundsGame()
-    const originalTexts = store['games'].get(joinCode)!.hat!.originalWords.map((w) => w.text).sort()
+    const originalTexts = store['games'].get(joinCode)!.hat!.wordStats.map((w) => w.text).sort()
     await store.advanceRound(joinCode, hostId)
     const hatTexts = store['games'].get(joinCode)!.hat!.wordTexts().sort()
     expect(hatTexts).toEqual(originalTexts)

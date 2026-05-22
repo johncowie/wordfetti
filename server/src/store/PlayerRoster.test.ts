@@ -53,22 +53,6 @@ describe('PlayerRoster', () => {
     })
   })
 
-  describe('anyPlayerExceeds', () => {
-    it('returns false when no player exceeds the limit', () => {
-      const roster = new PlayerRoster()
-      const p = roster.add(makePlayer('a', 1))
-      p.wordCount = 3
-      expect(roster.anyPlayerExceeds(3)).toBe(false)
-    })
-
-    it('returns true when a player has more words than the limit', () => {
-      const roster = new PlayerRoster()
-      const p = roster.add(makePlayer('a', 1))
-      p.wordCount = 4
-      expect(roster.anyPlayerExceeds(3)).toBe(true)
-    })
-  })
-
   describe('getIdToNameMap', () => {
     it('returns a map of all player IDs to names', () => {
       const roster = new PlayerRoster()
