@@ -32,6 +32,8 @@ export interface GameStore {
   readyTurn(joinCode: string, playerId: string): Promise<GameSnapshot>
   endTurn(joinCode: string, playerId: string): Promise<GameSnapshot>
   advanceRound(joinCode: string, playerId: string): Promise<GameSnapshot>
+  endGame(joinCode: string, playerId: string): Promise<GameSnapshot>
+  playExtraRound(joinCode: string, playerId: string): Promise<GameSnapshot>
   guessWord(joinCode: string, playerId: string): Promise<GameSnapshot>
   skipWord(joinCode: string, playerId: string): Promise<GameSnapshot>
   addWord(joinCode: string, playerId: string, text: string): Promise<Word>

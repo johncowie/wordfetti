@@ -191,6 +191,20 @@ export class InMemoryGameStore implements GameStore {
     return this.notifyAndReturn(joinCode, game)
   }
 
+  async endGame(joinCode: string, playerId: string): Promise<GameSnapshot> {
+    const game = this.requireGame(joinCode)
+    game.endGame(playerId)
+    this.touch(joinCode)
+    return this.notifyAndReturn(joinCode, game)
+  }
+
+  async playExtraRound(joinCode: string, playerId: string): Promise<GameSnapshot> {
+    const game = this.requireGame(joinCode)
+    game.playExtraRound(playerId)
+    this.touch(joinCode)
+    return this.notifyAndReturn(joinCode, game)
+  }
+
   async guessWord(joinCode: string, playerId: string): Promise<GameSnapshot> {
     const game = this.requireGame(joinCode)
     game.guessWord(playerId)

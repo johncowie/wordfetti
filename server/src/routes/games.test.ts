@@ -33,6 +33,8 @@ const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
     settings: DEFAULT_SETTINGS,
     teamNames: DEFAULT_TEAM_NAMES,
   }),
+  endGame: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'finished' as const, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES }),
+  playExtraRound: async () => ({ id: 'test-id', joinCode: 'ABC123', status: 'between_rounds' as const, round: 3, players: [], settings: DEFAULT_SETTINGS, teamNames: DEFAULT_TEAM_NAMES }),
   addWord: async () => ({ id: 'w1', text: 'banana' }),
   getWords: async () => [],
   getGameWords: async () => ({ wordsBySubmitter: [], bestClueGiver: null, wordDifficulty: null }),
@@ -862,6 +864,73 @@ describe('POST /api/games/:joinCode/advance-round', () => {
   it('returns 409 when advance-round is called on a round 3 game', async () => {
     const store = mockStore({ advanceRound: async () => { throw new AppError('INVALID_STATE', 'Cannot advance beyond round 3') } })
     const res = await request(buildApp(store)).post('/ABC123/advance-round').send({ playerId: 'p1' })
+    expect(res.status).toBe(409)
+  })
+})
+
+describe('POST /api/games/:joinCode/end-game', () => {
+  it('returns 200 and status finished when host calls from correct state', async () => {
+    const res = await request(buildApp(mockStore()))
+      .post('/ABC123/end-game')
+      .send({ playerId: 'p1' })
+    expect(res.status).toBe(200)
+    expect(res.body.status).toBe('finished')
+  })
+
+  it('returns 400 when playerId is missing', async () => {
+    const res = await request(buildApp(mockStore())).post('/ABC123/end-game').send({})
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 404 when store throws NOT_FOUND', async () => {
+    const store = mockStore({ endGame: async () => { throw new AppError('NOT_FOUND', 'Game not found') } })
+    const res = await request(buildApp(store)).post('/ABC123/end-game').send({ playerId: 'p1' })
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 403 when caller is not the host', async () => {
+    const store = mockStore({ endGame: async () => { throw new AppError('FORBIDDEN', 'Only the host can end the game') } })
+    const res = await request(buildApp(store)).post('/ABC123/end-game').send({ playerId: 'p1' })
+    expect(res.status).toBe(403)
+  })
+
+  it('returns 409 when game is not in awaiting_extra_round_decision state', async () => {
+    const store = mockStore({ endGame: async () => { throw new AppError('INVALID_STATE', 'Game is not awaiting extra round decision') } })
+    const res = await request(buildApp(store)).post('/ABC123/end-game').send({ playerId: 'p1' })
+    expect(res.status).toBe(409)
+  })
+})
+
+describe('POST /api/games/:joinCode/play-extra-round', () => {
+  it('returns 200 and status between_rounds when host calls from correct state', async () => {
+    const res = await request(buildApp(mockStore()))
+      .post('/ABC123/play-extra-round')
+      .send({ playerId: 'p1' })
+    expect(res.status).toBe(200)
+    expect(res.body.status).toBe('between_rounds')
+    expect(res.body.round).toBe(3)
+  })
+
+  it('returns 400 when playerId is missing', async () => {
+    const res = await request(buildApp(mockStore())).post('/ABC123/play-extra-round').send({})
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 404 when store throws NOT_FOUND', async () => {
+    const store = mockStore({ playExtraRound: async () => { throw new AppError('NOT_FOUND', 'Game not found') } })
+    const res = await request(buildApp(store)).post('/ABC123/play-extra-round').send({ playerId: 'p1' })
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 403 when caller is not the host', async () => {
+    const store = mockStore({ playExtraRound: async () => { throw new AppError('FORBIDDEN', 'Only the host can start an extra round') } })
+    const res = await request(buildApp(store)).post('/ABC123/play-extra-round').send({ playerId: 'p1' })
+    expect(res.status).toBe(403)
+  })
+
+  it('returns 409 when game is not in awaiting_extra_round_decision state', async () => {
+    const store = mockStore({ playExtraRound: async () => { throw new AppError('INVALID_STATE', 'Game is not awaiting extra round decision') } })
+    const res = await request(buildApp(store)).post('/ABC123/play-extra-round').send({ playerId: 'p1' })
     expect(res.status).toBe(409)
   })
 })

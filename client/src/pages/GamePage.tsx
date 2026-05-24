@@ -9,7 +9,8 @@ import { useAlarmSound } from '../hooks/useAlarmSound'
 import { useGameState } from '../hooks/useGameState'
 import { useClockOffset } from '../hooks/useClockOffset'
 
-function roundRuleText(round: 1 | 2 | 3): string {
+function roundRuleText(round: number): string {
+  if (round > 3) return ''
   if (round === 1) return 'Describe the concept by saying anything except the word itself! No Rhymes, "starts with _", or other obvious cheats.'
   if (round === 2) return 'Charades! Act out the concept to get people to guess the word or phrase without saying anything or making any noises.'
   return 'One word only - use one word to get the players to guess the correct answer'
@@ -83,6 +84,21 @@ export function GamePage() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-brand-cream">
         <p role="status" className="text-gray-400">Loading...</p>
+      </div>
+    )
+  }
+
+  if (game.status === 'awaiting_extra_round_decision') {
+    return (
+      <div className="flex min-h-screen flex-col items-center bg-brand-cream px-4 py-8">
+        <div className="w-full max-w-lg">
+          <Logo />
+          <AwaitingExtraRoundDecisionView
+            isHost={isHost}
+            joinCode={joinCode!}
+            playerId={currentPlayerId!}
+          />
+        </div>
       </div>
     )
   }
@@ -425,17 +441,73 @@ function SpectatorView({
   )
 }
 
-function BetweenRoundsView({ round, isHost, joinCode, playerId, onManagePlayers }: {
-  round: 1 | 2 | 3; isHost: boolean; joinCode: string; playerId: string; onManagePlayers?: () => void
+function AwaitingExtraRoundDecisionView({ isHost, joinCode, playerId }: {
+  isHost: boolean; joinCode: string; playerId: string
 }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // round === 3 should never reach between_rounds (goes straight to finished),
-  // but guard against stale/malformed state
-  if (round === 3) {
-    return <p className="text-2xl font-bold text-gray-900">Game over!</p>
+  async function handleEndGame() {
+    setLoading(true)
+    setError(null)
+    const res = await fetch(`/api/games/${joinCode}/end-game`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      setError((body as { error?: string }).error ?? 'Something went wrong')
+    }
+    setLoading(false)
   }
+
+  async function handlePlayExtraRound() {
+    setLoading(true)
+    setError(null)
+    const res = await fetch(`/api/games/${joinCode}/play-extra-round`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      setError((body as { error?: string }).error ?? 'Something went wrong')
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div className="mt-8 flex flex-col items-center gap-6 text-center">
+      <p className="text-xl font-semibold text-gray-900">The host is choosing whether to end the game or play another round</p>
+      {isHost && (
+        <>
+          {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+          <button
+            onClick={handleEndGame}
+            disabled={loading}
+            className="rounded-xl bg-gray-200 px-8 py-3 text-sm font-semibold text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            End Game
+          </button>
+          <button
+            onClick={handlePlayExtraRound}
+            disabled={loading}
+            className="rounded-xl bg-brand-coral px-8 py-3 text-sm font-semibold text-white disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Play another round
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+function BetweenRoundsView({ round, isHost, joinCode, playerId, onManagePlayers }: {
+  round: number; isHost: boolean; joinCode: string; playerId: string; onManagePlayers?: () => void
+}) {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   async function handleAdvance() {
     setLoading(true)
@@ -483,7 +555,7 @@ function BetweenRoundsView({ round, isHost, joinCode, playerId, onManagePlayers 
   )
 }
 
-function RoundSplashOverlay({ round, onDismiss }: { round: 1 | 2 | 3; onDismiss: () => void }) {
+function RoundSplashOverlay({ round, onDismiss }: { round: number; onDismiss: () => void }) {
   const overlayRef = useRef<HTMLDivElement>(null)
 
   // Move focus into the overlay on mount so keyboard users can dismiss it immediately.

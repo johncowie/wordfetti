@@ -370,6 +370,42 @@ export function createGamesRouter(store: GameStore): Router {
     }
   })
 
+  // POST /:joinCode/end-game — host ends game from awaiting_extra_round_decision
+  router.post('/:joinCode/end-game', async (req, res, next) => {
+    try {
+      const joinCode = req.params.joinCode.toUpperCase()
+      const { playerId } = req.body ?? {}
+      if (typeof playerId !== 'string' || !playerId) {
+        return res.status(400).json({ error: 'playerId is required' })
+      }
+      const updated = await store.endGame(joinCode, playerId)
+      return res.json(updated)
+    } catch (err: unknown) {
+      if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'INVALID_STATE') return res.status(409).json({ error: err.message })
+      next(err)
+    }
+  })
+
+  // POST /:joinCode/play-extra-round — host initiates extra round from awaiting_extra_round_decision
+  router.post('/:joinCode/play-extra-round', async (req, res, next) => {
+    try {
+      const joinCode = req.params.joinCode.toUpperCase()
+      const { playerId } = req.body ?? {}
+      if (typeof playerId !== 'string' || !playerId) {
+        return res.status(400).json({ error: 'playerId is required' })
+      }
+      const updated = await store.playExtraRound(joinCode, playerId)
+      return res.json(updated)
+    } catch (err: unknown) {
+      if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'INVALID_STATE') return res.status(409).json({ error: err.message })
+      next(err)
+    }
+  })
+
   // POST /:joinCode/players — join an existing game
   router.post('/:joinCode/players', async (req, res, next) => {
     try {

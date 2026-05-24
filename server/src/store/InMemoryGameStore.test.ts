@@ -537,14 +537,14 @@ describe('guessWord', () => {
     expect(current.turnPhase).toBeUndefined()
   })
 
-  it('transitions to finished when hat empties and round is 3', async () => {
+  it('transitions to awaiting_extra_round_decision when hat empties and round is 3', async () => {
     const { store, joinCode, clueGiverId, game: active } = await setupActiveGame()
     store['games'].get(joinCode)!.round = 3
     let current = active
     while (current.status === 'in_progress') {
       current = await store.guessWord(joinCode, clueGiverId)
     }
-    expect(current.status).toBe('finished')
+    expect(current.status).toBe('awaiting_extra_round_decision')
     expect(current.currentWord).toBeUndefined()
     expect(current.turnPhase).toBeUndefined()
     expect(current.currentClueGiverId).toBeUndefined()
@@ -757,14 +757,14 @@ describe('endTurn', () => {
     expect(after.currentClueGiverId).toBeUndefined()
   })
 
-  it('transitions to finished when hat is empty (defensive guard) and round is 3', async () => {
+  it('transitions to awaiting_extra_round_decision when hat is empty (defensive guard) and round is 3', async () => {
     const { store, joinCode, clueGiverId } = await setupActiveGame()
     const game = store['games'].get(joinCode)!
     ;(game.hat as any)._words = []
     game.round = 3
 
     const after = await store.endTurn(joinCode, clueGiverId)
-    expect(after.status).toBe('finished')
+    expect(after.status).toBe('awaiting_extra_round_decision')
     expect(after.currentClueGiverId).toBeUndefined()
   })
 })
@@ -811,10 +811,12 @@ describe('advanceRound', () => {
     expect(after.status).toBe('in_progress')
   })
 
-  it('throws INVALID_STATE when round is already 3', async () => {
+  it('advances round 3 to round 4 with in_progress status', async () => {
     const { store, joinCode, hostId } = await setupBetweenRoundsGame()
     store['games'].get(joinCode)!.round = 3
-    await expect(store.advanceRound(joinCode, hostId)).rejects.toMatchObject({ code: 'INVALID_STATE' })
+    const after = await store.advanceRound(joinCode, hostId)
+    expect(after.round).toBe(4)
+    expect(after.status).toBe('in_progress')
   })
 
   it('sets round to 2 and status to in_progress', async () => {

@@ -14,7 +14,7 @@ export class GameSession {
 
   status: GameSnapshot['status']
   hostId?: string
-  round?: 1 | 2 | 3
+  round?: number
   activeTeam?: 1 | 2
   currentClueGiverId?: string
   turnPhase?: 'ready' | 'active'
@@ -122,7 +122,7 @@ export class GameSession {
     if (this.turnPhase !== 'active') throw new AppError('TURN_NOT_ACTIVE', 'Turn is not active')
 
     if (!this._hat || this._hat.isEmpty) {
-      this.status = this._resolveRoundEndStatus(this.round as 1 | 2 | 3)
+      this.status = this._resolveRoundEndStatus(this.round ?? 1)
       this.currentClueGiverId = undefined
       this.turnPhase = undefined
       this.turnStartedAt = undefined
@@ -146,14 +146,13 @@ export class GameSession {
   advanceRound(playerId: string): void {
     if (this.hostId !== playerId) throw new AppError('FORBIDDEN', 'Only the host can advance the round')
     if (this.status !== 'between_rounds') throw new AppError('INVALID_STATE', 'Game is not between rounds')
-    if (this.round === 3) throw new AppError('INVALID_STATE', 'Cannot advance beyond round 3')
 
     this._hat!.refill()
 
     const newActiveTeam: 1 | 2 = this.activeTeam === 1 ? 2 : 1
     const nextClueGiver = this.roster.assignNextClueGiver(newActiveTeam)
 
-    this.round = (this.round === 1 ? 2 : 3) as 2 | 3
+    this.round = (this.round ?? 1) + 1
     this.status = 'in_progress'
     this.turnPhase = 'ready'
     this.activeTeam = newActiveTeam
@@ -188,7 +187,7 @@ export class GameSession {
         guessedThisTurn: this.guessedThisTurn,
         scores: this.scores,
       })
-      this.status = this._resolveRoundEndStatus(this.round as 1 | 2 | 3)
+      this.status = this._resolveRoundEndStatus(this.round ?? 1)
       this.currentClueGiverId = undefined
       this.turnPhase = undefined
       this.turnStartedAt = undefined
@@ -286,7 +285,21 @@ export class GameSession {
     if (this.currentClueGiverId !== playerId) throw new AppError('FORBIDDEN', 'Only the clue giver can do this')
   }
 
-  private _resolveRoundEndStatus(round: 1 | 2 | 3): GameSnapshot['status'] {
-    return round === 3 ? 'finished' : 'between_rounds'
+  endGame(playerId: string): void {
+    if (this.hostId !== playerId) throw new AppError('FORBIDDEN', 'Only the host can end the game')
+    if (this.status !== 'awaiting_extra_round_decision') throw new AppError('INVALID_STATE', 'Game is not awaiting extra round decision')
+    this.status = 'finished'
+    logger.info('Game ended by host', { joinCode: this.joinCode })
+  }
+
+  playExtraRound(playerId: string): void {
+    if (this.hostId !== playerId) throw new AppError('FORBIDDEN', 'Only the host can start an extra round')
+    if (this.status !== 'awaiting_extra_round_decision') throw new AppError('INVALID_STATE', 'Game is not awaiting extra round decision')
+    this.status = 'between_rounds'
+    logger.info('Extra round initiated', { joinCode: this.joinCode, round: this.round })
+  }
+
+  private _resolveRoundEndStatus(round: number): GameSnapshot['status'] {
+    return round >= 3 ? 'awaiting_extra_round_decision' : 'between_rounds'
   }
 }

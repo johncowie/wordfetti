@@ -51,8 +51,8 @@ export type Player = {
 export type GameSnapshot = {
   id: string
   joinCode: string
-  status: 'lobby' | 'in_progress' | 'between_rounds' | 'finished'
-  round?: 1 | 2 | 3   // undefined before game starts; 1 after startGame
+  status: 'lobby' | 'in_progress' | 'between_rounds' | 'finished' | 'awaiting_extra_round_decision'
+  round?: number   // undefined before game starts; 1 after startGame
   players: Player[]
   hostId?: string
   activeTeam?: 1 | 2
