@@ -1,70 +1,28 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import type { Team } from '@wordfetti/shared'
 import { Logo } from '../components/Logo'
-import { TeamSelector } from '../components/TeamSelector'
-import { saveSession } from '../session'
 
 export function JoinPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [code, setCode] = useState(() => (searchParams.get('code') ?? '').toUpperCase())
-  const [name, setName] = useState('')
-  const [team, setTeam] = useState<Team | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [gameTeamNames, setGameTeamNames] = useState<{ team1: string; team2: string } | null>(null)
-
-  useEffect(() => {
-    if (code.length !== 6) {
-      setGameTeamNames(null)
-      return
-    }
-    fetch(`/api/games/${code}`)
-      .then((res) => {
-        if (!res.ok) { setGameTeamNames(null); return }
-        return res.json()
-      })
-      .then((data) => { if (data) setGameTeamNames(data.teamNames) })
-      .catch(() => setGameTeamNames(null))
-  }, [code])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const joinCode = code.trim().toUpperCase()
-    const trimmedName = name.trim()
-
     if (!joinCode) return setError('Please enter the game code.')
-    if (!trimmedName) return setError('Please enter your name.')
-    if (!team) return setError('Please pick a team.')
-
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/games/${joinCode}/players`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmedName, team }),
-      })
-      if (res.status === 404) {
+      const res = await fetch(`/api/games/${joinCode}`)
+      if (!res.ok) {
         setError('Game not found. Check the code and try again.')
         return
       }
-      if (res.status === 409) {
-        const data = await res.json().catch(() => ({}))
-        if (data.code === 'NAME_TAKEN') {
-          setError('That name is already taken — please choose another.')
-        } else {
-          setError('This game has already started.')
-        }
-        return
-      }
-      if (!res.ok) throw new Error(`Unexpected response: ${res.status}`)
-      const { player } = await res.json()
-      saveSession({ playerId: player.id, joinCode })
       navigate(`/lobby/${joinCode}`)
-    } catch (err) {
-      console.error('Failed to join game:', err)
+    } catch {
       setError('Something went wrong. Please try again.')
     } finally {
       setLoading(false)
@@ -97,34 +55,6 @@ export function JoinPage() {
             />
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="name" className="text-sm font-medium text-gray-700">
-              Your Name
-            </label>
-            <input
-              id="name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Enter your name"
-              maxLength={50}
-              className="rounded-lg border border-gray-200 px-4 py-3 text-sm outline-none focus:border-brand-coral focus:ring-1 focus:ring-brand-coral"
-            />
-          </div>
-
-          {gameTeamNames && (
-            <div className="flex flex-col gap-1.5">
-              <span id="join-team-label" className="text-sm font-medium text-gray-700">Pick Your Team</span>
-              <TeamSelector
-                id="join-team-label"
-                value={team}
-                onChange={setTeam}
-                team1Label={gameTeamNames.team1}
-                team2Label={gameTeamNames.team2}
-              />
-            </div>
-          )}
-
           {error && (
             <p role="alert" className="text-center text-sm text-red-600">
               {error}
@@ -137,7 +67,7 @@ export function JoinPage() {
             aria-busy={loading}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-coral px-6 py-3.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
           >
-            {loading ? 'Joining...' : 'Join Game →'}
+            {loading ? 'Checking...' : 'Find Game →'}
           </button>
         </form>
       </div>

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import type { GameSettings, Player } from '@wordfetti/shared'
+import type { GameSettings, Player, Team } from '@wordfetti/shared'
 import { Logo } from '../components/Logo'
 import { ManagePlayersModal } from '../components/ManagePlayersModal'
-import { loadSession } from '../session'
+import { loadSession, saveSession } from '../session'
 import { useGameState } from '../hooks/useGameState'
 import { calculateDefaultWordsPerPlayer } from '../utils/gameSettings'
 
@@ -15,9 +15,13 @@ export function LobbyPage() {
   const [settingsValid, setSettingsValid] = useState(true)
   const [showManagePlayers, setShowManagePlayers] = useState(false)
   // useState initialiser avoids calling loadSession on every render
-  const [session] = useState(() => loadSession())
+  const [session, setSession] = useState(() => loadSession())
   const currentPlayerId =
     session !== null && session.joinCode === joinCode?.toUpperCase() ? session.playerId : null
+
+  const [joinName, setJoinName] = useState('')
+  const [joinLoading, setJoinLoading] = useState(false)
+  const [joinError, setJoinError] = useState<string | null>(null)
 
   const { game, error } = useGameState(joinCode)
 
@@ -26,6 +30,37 @@ export function LobbyPage() {
       navigate(`/game/${joinCode}`)
     }
   }, [game?.status, joinCode, navigate])
+
+  async function handleJoin(team: Team) {
+    if (!joinCode) return
+    const trimmedName = joinName.trim()
+    setJoinLoading(true)
+    setJoinError(null)
+    try {
+      const res = await fetch(`/api/games/${joinCode}/players`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmedName, team }),
+      })
+      if (res.status === 409) {
+        const data = await res.json().catch(() => ({}))
+        if (data.code === 'NAME_TAKEN') {
+          setJoinError('That name is already taken — please choose another.')
+        } else {
+          setJoinError('This game has already started.')
+        }
+        return
+      }
+      if (!res.ok) throw new Error(`Unexpected response: ${res.status}`)
+      const { player } = await res.json()
+      saveSession({ playerId: player.id, joinCode })
+      setSession({ playerId: player.id, joinCode })
+    } catch {
+      setJoinError('Something went wrong. Please try again.')
+    } finally {
+      setJoinLoading(false)
+    }
+  }
 
   async function handleStartGame() {
     if (!joinCode || !session) return
@@ -44,7 +79,7 @@ export function LobbyPage() {
 
   function copyCode() {
     if (!joinCode) return
-    navigator.clipboard.writeText(joinCode).then(() => {
+    navigator.clipboard.writeText(`${window.location.origin}/lobby/${joinCode}`).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     })
@@ -98,14 +133,40 @@ export function LobbyPage() {
           {copied ? 'Copied!' : '\u00A0'}
         </p>
 
-        {/* Prompt for visitors without a session */}
+        {/* Inline join UI for visitors */}
         {!currentPlayerId && (
-          <p className="mt-2 text-center text-sm text-gray-500">
-            Want to play?{' '}
-            <a href={`/join?code=${joinCode}`} className="font-medium text-brand-coral hover:underline">
-              Join this game
-            </a>
-          </p>
+          <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
+            <p className="mb-3 text-sm font-semibold text-gray-700">Want to play?</p>
+            <div className="flex flex-col gap-3">
+              <input
+                type="text"
+                value={joinName}
+                onChange={(e) => { setJoinName(e.target.value); setJoinError(null) }}
+                placeholder="Enter your name"
+                maxLength={50}
+                className="rounded-lg border border-gray-200 px-4 py-3 text-sm outline-none focus:border-brand-coral focus:ring-1 focus:ring-brand-coral"
+              />
+              {joinError && (
+                <p role="alert" className="text-sm text-red-600">{joinError}</p>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => handleJoin(1)}
+                  disabled={joinName.trim().length === 0 || joinLoading}
+                  className="rounded-xl bg-brand-coral px-4 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                >
+                  Join {game.teamNames.team1}
+                </button>
+                <button
+                  onClick={() => handleJoin(2)}
+                  disabled={joinName.trim().length === 0 || joinLoading}
+                  className="rounded-xl bg-brand-teal px-4 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                >
+                  Join {game.teamNames.team2}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Team columns */}
