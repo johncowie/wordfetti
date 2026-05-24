@@ -1,5 +1,5 @@
 ---
-work_item_id: "ENG-025"
+work_item_id: "ENG-027"
 title: "Streamline Join Flow via Lobby"
 date: "2026-05-24T15:03:10+00:00"
 author: Anthony Scatchell
@@ -10,7 +10,7 @@ parent: ""
 tags: [frontend, ux, refactor]
 ---
 
-# ENG-025: Streamline Join Flow via Lobby
+# ENG-027: Streamline Join Flow via Lobby
 
 **Type**: Story
 **Status**: Draft
