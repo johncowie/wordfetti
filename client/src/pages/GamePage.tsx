@@ -5,6 +5,7 @@ import { Logo } from '../components/Logo'
 import { ManagePlayersModal } from '../components/ManagePlayersModal'
 import { TurnTimer } from '../components/TurnTimer'
 import { loadSession } from '../session'
+import { useAlarmSound } from '../hooks/useAlarmSound'
 import { useGameState } from '../hooks/useGameState'
 import { useClockOffset } from '../hooks/useClockOffset'
 
@@ -25,6 +26,9 @@ export function GamePage() {
     session !== null && session.joinCode === joinCode?.toUpperCase()
       ? session.playerId
       : null
+
+  const isHost = currentPlayerId !== null && currentPlayerId === game?.hostId
+  const { isPlaying: alarmPlaying, stop: stopAlarm } = useAlarmSound(isHost, game?.turnPhase)
 
   const prevStatusRef = useRef<string | undefined>(undefined)
   const [showRoundSplash, setShowRoundSplash] = useState(false)
@@ -86,11 +90,20 @@ export function GamePage() {
   // between_rounds check must come before the currentClueGiverId guard because
   // guessWord clears currentClueGiverId when the hat empties.
   if (game.status === 'between_rounds') {
-    const isHost = currentPlayerId === game.hostId
     return (
       <div className="flex min-h-screen flex-col items-center bg-brand-cream px-4 py-8">
         <div className="w-full max-w-lg">
           <Logo />
+          {alarmPlaying && (
+            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+              <button
+                onClick={stopAlarm}
+                className="rounded-full bg-red-600 px-6 py-3 text-white font-semibold shadow-lg hover:bg-red-700 active:scale-95 transition-all"
+              >
+                Stop alarm
+              </button>
+            </div>
+          )}
           <BetweenRoundsView
             round={game.round ?? 1}
             isHost={isHost}
@@ -125,12 +138,20 @@ export function GamePage() {
   const isClueGiver = currentPlayerId === game.currentClueGiverId
   const isGuesser = !isClueGiver && currentPlayer?.team === clueGiver.team
 
-  const isHost = currentPlayerId === game.hostId
-
   return (
     <div className="flex min-h-screen flex-col items-center bg-brand-cream px-4 py-8">
       <div className="w-full max-w-lg">
         <Logo />
+        {alarmPlaying && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+            <button
+              onClick={stopAlarm}
+              className="rounded-full bg-red-600 px-6 py-3 text-white font-semibold shadow-lg hover:bg-red-700 active:scale-95 transition-all"
+            >
+              Stop alarm
+            </button>
+          </div>
+        )}
         {showRoundSplash && game.round && (
           <RoundSplashOverlay round={game.round!} onDismiss={() => setShowRoundSplash(false)} />
         )}
