@@ -57,6 +57,12 @@ export class PlayerRoster {
     if (player) player.active = false
   }
 
+  switchTeam(playerId: string, newTeam: Team): void {
+    const player = this._players.find((p) => p.id === playerId && p.active)
+    if (!player) throw new Error('Player not found or not active')
+    player.team = newTeam
+  }
+
   incrementStat(playerId: string): void {
     const player = this._players.find((p) => p.id === playerId)
     if (player) player.stats.clueGiverCount++

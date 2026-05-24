@@ -52,6 +52,13 @@ export class GameSession {
     return this.roster.add({ id: randomUUID(), name, team, wordCount: 0 })
   }
 
+  switchTeam(playerId: string, newTeam: Team): void {
+    if (this.status !== 'lobby') throw new AppError('GAME_NOT_IN_LOBBY', 'Teams can only be changed while the game is in the lobby')
+    const player = this.roster.getById(playerId)
+    if (!player || !player.active) throw new AppError('FORBIDDEN', 'Player not in game')
+    this.roster.switchTeam(playerId, newTeam)
+  }
+
   addWord(playerId: string, text: string): Word {
     if (this.status !== 'lobby') throw new AppError('GAME_NOT_IN_LOBBY', 'Game is not in lobby')
     if (!this.roster.getById(playerId)) throw new AppError('FORBIDDEN', 'Player not in game')

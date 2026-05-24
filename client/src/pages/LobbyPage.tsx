@@ -22,6 +22,8 @@ export function LobbyPage() {
   const [joinName, setJoinName] = useState('')
   const [joinLoading, setJoinLoading] = useState(false)
   const [joinError, setJoinError] = useState<string | null>(null)
+  const [switchLoading, setSwitchLoading] = useState(false)
+  const [switchError, setSwitchError] = useState<string | null>(null)
 
   const { game, error } = useGameState(joinCode)
 
@@ -59,6 +61,28 @@ export function LobbyPage() {
       setJoinError('Something went wrong. Please try again.')
     } finally {
       setJoinLoading(false)
+    }
+  }
+
+  async function handleSwitchTeam(newTeam: Team) {
+    if (!joinCode || !session) return
+    setSwitchLoading(true)
+    setSwitchError(null)
+    try {
+      const res = await fetch(`/api/games/${joinCode}/players/${session.playerId}/team`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ team: newTeam }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setSwitchError(data.error ?? 'Could not switch teams.')
+      }
+      // On success, SSE push updates team columns automatically
+    } catch {
+      setSwitchError('Something went wrong. Please try again.')
+    } finally {
+      setSwitchLoading(false)
     }
   }
 
@@ -168,6 +192,31 @@ export function LobbyPage() {
             </div>
           </div>
         )}
+
+        {/* Switch team UI — shown only to joined players while game is still in lobby */}
+        {currentPlayerId && (() => {
+          const currentPlayer = game.players.find((p) => p.id === currentPlayerId)
+          if (!currentPlayer) return null
+          const oppositeTeam: Team = currentPlayer.team === 1 ? 2 : 1
+          const oppositeTeamName = oppositeTeam === 1 ? game.teamNames.team1 : game.teamNames.team2
+          const btnClass = oppositeTeam === 1
+            ? 'w-full rounded-xl bg-brand-coral px-4 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40'
+            : 'w-full rounded-xl bg-brand-teal px-4 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40'
+          return (
+            <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
+              <button
+                onClick={() => handleSwitchTeam(oppositeTeam)}
+                disabled={switchLoading}
+                className={btnClass}
+              >
+                Switch to {oppositeTeamName}
+              </button>
+              {switchError && (
+                <p role="alert" className="mt-2 text-sm text-red-600">{switchError}</p>
+              )}
+            </div>
+          )
+        })()}
 
         {/* Team columns */}
         <div className="mt-6 grid grid-cols-2 gap-4">

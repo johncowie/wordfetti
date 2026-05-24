@@ -154,8 +154,8 @@ router.patch('/:joinCode/players/:playerId/team', async (req, res, next) => {
 
 #### Automated Verification:
 
-- [ ] TypeScript compiles: `pnpm --filter server build`
-- [ ] All server tests pass: `pnpm test`
+- [x] TypeScript compiles: `pnpm --filter server build`
+- [x] All server tests pass: `pnpm test`
 - [ ] Manual curl: join a game, then `PATCH /api/games/:joinCode/players/:playerId/team` with `{ "team": 2 }` returns the updated snapshot with the player on the new team
 - [ ] Manual curl: calling the route with `in_progress` game returns 409
 
@@ -281,8 +281,8 @@ Note: The IIFE pattern above can be extracted into a small component or a comput
 
 #### Automated Verification:
 
-- [ ] TypeScript compiles: `pnpm --filter client build`
-- [ ] All tests pass: `pnpm test`
+- [x] TypeScript compiles: `pnpm --filter client build`
+- [x] All tests pass: `pnpm test`
 
 #### Manual Verification:
 

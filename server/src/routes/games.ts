@@ -398,6 +398,25 @@ export function createGamesRouter(store: GameStore): Router {
     }
   })
 
+  // PATCH /:joinCode/players/:playerId/team — switch a player's team (lobby only)
+  router.patch('/:joinCode/players/:playerId/team', async (req, res, next) => {
+    try {
+      const joinCode = req.params.joinCode.toUpperCase()
+      const { playerId } = req.params
+      const { team } = req.body ?? {}
+      if (!isValidTeam(team)) {
+        return res.status(400).json({ error: 'Team must be 1 or 2' })
+      }
+      const updated = await store.switchTeam(joinCode, playerId, team)
+      return res.json(updated)
+    } catch (err: unknown) {
+      if (err instanceof AppError && err.code === 'NOT_FOUND') return res.status(404).json({ error: 'Game not found' })
+      if (err instanceof AppError && err.code === 'FORBIDDEN') return res.status(403).json({ error: err.message })
+      if (err instanceof AppError && err.code === 'GAME_NOT_IN_LOBBY') return res.status(409).json({ error: err.message })
+      next(err)
+    }
+  })
+
   // DELETE /:joinCode/players/:targetPlayerId — host kicks a player
   router.delete('/:joinCode/players/:targetPlayerId', async (req, res, next) => {
     const joinCode = req.params.joinCode.toUpperCase()

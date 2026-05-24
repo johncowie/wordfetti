@@ -134,6 +134,13 @@ export class InMemoryGameStore implements GameStore {
     return { ...player }
   }
 
+  async switchTeam(joinCode: string, playerId: string, newTeam: Team): Promise<GameSnapshot> {
+    const game = this.requireGame(joinCode)
+    game.switchTeam(playerId, newTeam)
+    this.touch(joinCode)
+    return this.notifyAndReturn(joinCode, game)
+  }
+
   async startGame(joinCode: string): Promise<GameSnapshot> {
     const game = this.requireGame(joinCode)
     game.start()

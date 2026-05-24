@@ -21,6 +21,12 @@ export interface GameStore {
    *   in the lobby (normalised = trimmed, lowercased, internal whitespace collapsed to single space)
    */
   joinGame(joinCode: string, name: string, team: Team): Promise<Player>
+  /**
+   * @throws AppError('NOT_FOUND') if the game does not exist
+   * @throws AppError('GAME_NOT_IN_LOBBY') if the game has already started
+   * @throws AppError('FORBIDDEN') if the player is not an active participant
+   */
+  switchTeam(joinCode: string, playerId: string, newTeam: Team): Promise<GameSnapshot>
   subscribe(joinCode: string, callback: (game: GameSnapshot) => void): () => void
   startGame(joinCode: string): Promise<GameSnapshot>
   readyTurn(joinCode: string, playerId: string): Promise<GameSnapshot>

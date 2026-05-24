@@ -42,6 +42,7 @@ const mockStore = (overrides?: Partial<GameStore>): GameStore => ({
   updateSettings: vi.fn(),
   updateTeamName: vi.fn(),
   kickPlayer: vi.fn(),
+  switchTeam: vi.fn(),
   ...overrides,
 })
 
