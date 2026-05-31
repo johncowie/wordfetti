@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-export function useAlarmSound(isHost: boolean, turnPhase: string | undefined) {
+export function useAlarmSound(
+  isHost: boolean,
+  turnPhase: string | undefined,
+  turnEndReason: 'timeout' | 'round_complete' | undefined,
+) {
   const prevTurnPhaseRef = useRef<string | undefined>(undefined)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -18,7 +22,12 @@ export function useAlarmSound(isHost: boolean, turnPhase: string | undefined) {
       audioRef.current.pause()
       audioRef.current = null
       setIsPlaying(false)
-    } else if (isHost && prevTurnPhaseRef.current === 'active' && turnPhase !== 'active') {
+    } else if (
+      isHost &&
+      prevTurnPhaseRef.current === 'active' &&
+      turnPhase !== 'active' &&
+      turnEndReason === 'timeout'
+    ) {
       const audio = new Audio('/assets/sounds/alarm-clock-sound-effect.mp3')
       audioRef.current = audio
       setIsPlaying(true)
@@ -34,7 +43,7 @@ export function useAlarmSound(isHost: boolean, turnPhase: string | undefined) {
     if (turnPhase !== undefined) {
       prevTurnPhaseRef.current = turnPhase
     }
-  }, [isHost, turnPhase])
+  }, [isHost, turnPhase, turnEndReason])
 
   useEffect(() => {
     return () => {

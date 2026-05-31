@@ -21,6 +21,7 @@ export class GameSession {
   scores?: { team1: number; team2: number }
   guessedThisTurn?: string[]
   turnStartedAt?: string
+  turnEndReason?: 'timeout' | 'round_complete'
   teamNames: { team1: string; team2: string }
   settings: GameSettings
 
@@ -104,6 +105,7 @@ export class GameSession {
     this.turnPhase = 'active'
     this.guessedThisTurn = []
     this.turnStartedAt = turnStartedAt
+    this.turnEndReason = undefined
 
     logger.debug('Turn started', {
       joinCode: this.joinCode,
@@ -126,6 +128,7 @@ export class GameSession {
       this.currentClueGiverId = undefined
       this.turnPhase = undefined
       this.turnStartedAt = undefined
+      this.turnEndReason = 'round_complete'
       return
     }
 
@@ -139,6 +142,7 @@ export class GameSession {
     this.turnPhase = 'ready'
     this.guessedThisTurn = []
     this.turnStartedAt = undefined
+    this.turnEndReason = 'timeout'
 
     logger.info('Turn ended', { joinCode: this.joinCode, newActiveTeam: newTeam, nextClueGiver: nextClueGiver.name })
   }
@@ -158,6 +162,7 @@ export class GameSession {
     this.activeTeam = newActiveTeam
     this.currentClueGiverId = nextClueGiver.id
     this.turnStartedAt = undefined
+    this.turnEndReason = undefined
     this.guessedThisTurn = []
 
     logger.info('Round advanced', { joinCode: this.joinCode, round: this.round })
@@ -191,6 +196,7 @@ export class GameSession {
       this.currentClueGiverId = undefined
       this.turnPhase = undefined
       this.turnStartedAt = undefined
+      this.turnEndReason = 'round_complete'
     } else {
       logger.debug('Word guessed', {
         joinCode: this.joinCode,
@@ -277,6 +283,7 @@ export class GameSession {
       currentWord: this.turnPhase === 'active' ? this._hat?.current?.text : undefined,
       guessedThisTurn: this.guessedThisTurn,
       turnStartedAt: this.turnStartedAt,
+      turnEndReason: this.turnEndReason,
     }
   }
 

@@ -29,7 +29,7 @@ export function GamePage() {
       : null
 
   const isHost = currentPlayerId !== null && currentPlayerId === game?.hostId
-  const { isPlaying: alarmPlaying, stop: stopAlarm } = useAlarmSound(isHost, game?.turnPhase)
+  const { isPlaying: alarmPlaying, stop: stopAlarm } = useAlarmSound(isHost, game?.turnPhase, game?.turnEndReason)
 
   const prevStatusRef = useRef<string | undefined>(undefined)
   const [showRoundSplash, setShowRoundSplash] = useState(false)
