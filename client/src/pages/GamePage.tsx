@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, Dispatch, SetStateAction } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import type { GameSnapshot } from '@wordfetti/shared'
 import { Logo } from '../components/Logo'
@@ -20,8 +20,15 @@ export function GamePage() {
   const { joinCode } = useParams<{ joinCode: string }>()
   const navigate = useNavigate()
   const [session] = useState(() => loadSession())
-  const { game, error } = useGameState(joinCode)
+  const { game, setGame, error, connected } = useGameState(joinCode)
   const { clockOffset, clockOffsetReady } = useClockOffset()
+
+  const [visibilitySeq, setVisibilitySeq] = useState(0)
+  useEffect(() => {
+    const handler = () => { if (!document.hidden) setVisibilitySeq(s => s + 1) }
+    document.addEventListener('visibilitychange', handler)
+    return () => document.removeEventListener('visibilitychange', handler)
+  }, [])
 
   const currentPlayerId =
     session !== null && session.joinCode === joinCode?.toUpperCase()
@@ -171,8 +178,20 @@ export function GamePage() {
         {showRoundSplash && game.round && (
           <RoundSplashOverlay round={game.round!} onDismiss={() => setShowRoundSplash(false)} />
         )}
+        {!connected && (
+          <p role="status" className="mt-4 text-center text-sm font-medium text-amber-600">Reconnecting...</p>
+        )}
         {isClueGiver && (
-          <ClueGiverView game={game} joinCode={joinCode!} playerId={currentPlayerId!} clockOffset={clockOffset} clockOffsetReady={clockOffsetReady} />
+          <ClueGiverView
+            game={game}
+            joinCode={joinCode!}
+            playerId={currentPlayerId!}
+            clockOffset={clockOffset}
+            clockOffsetReady={clockOffsetReady}
+            connected={connected}
+            visibilitySeq={visibilitySeq}
+            onGameUpdate={setGame}
+          />
         )}
         {!isClueGiver && game.turnPhase === 'ready' && (
           <WaitingView
@@ -181,7 +200,7 @@ export function GamePage() {
           />
         )}
         {!isClueGiver && game.turnPhase === 'active' && isGuesser && (
-          <GuesserView clueGiverName={clueGiver.name} game={game} clockOffset={clockOffset} clockOffsetReady={clockOffsetReady} />
+          <GuesserView clueGiverName={clueGiver.name} game={game} clockOffset={clockOffset} clockOffsetReady={clockOffsetReady} visibilitySeq={visibilitySeq} />
         )}
         {!isClueGiver && game.turnPhase === 'active' && !isGuesser && (
           <SpectatorView
@@ -190,6 +209,7 @@ export function GamePage() {
             game={game}
             clockOffset={clockOffset}
             clockOffsetReady={clockOffsetReady}
+            visibilitySeq={visibilitySeq}
             onManagePlayers={isHost ? () => setShowManagePlayers(true) : undefined}
           />
         )}
@@ -217,12 +237,18 @@ function ClueGiverView({
   playerId,
   clockOffset,
   clockOffsetReady,
+  connected,
+  visibilitySeq,
+  onGameUpdate,
 }: {
   game: GameSnapshot
   joinCode: string
   playerId: string
   clockOffset: number
   clockOffsetReady: boolean
+  connected: boolean
+  visibilitySeq: number
+  onGameUpdate: Dispatch<SetStateAction<GameSnapshot | null>>
 }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -274,6 +300,8 @@ function ClueGiverView({
       if (!response.ok) {
         const body = await response.json().catch(() => ({}))
         setError((body as { error?: string }).error ?? 'Something went wrong — please try again')
+      } else {
+        onGameUpdate(await response.json() as GameSnapshot)
       }
     } catch {
       setError('Something went wrong — please try again')
@@ -298,7 +326,7 @@ function ClueGiverView({
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
         <button
           onClick={handleReady}
-          disabled={loading || turnEnding}
+          disabled={loading || turnEnding || !connected}
           className="rounded-xl bg-brand-coral px-8 py-3 text-sm font-semibold text-white disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Start Turn
@@ -311,7 +339,7 @@ function ClueGiverView({
     <div className="mt-8 flex flex-col items-center gap-6 text-center">
       {game.turnPhase === 'active' && game.turnStartedAt && (
         <TurnTimer
-          key={clockOffsetReady ? 'synced' : 'unsynced'}
+          key={`${clockOffsetReady ? 'synced' : 'unsynced'}-${visibilitySeq}`}
           duration={game.settings.turnDurationSeconds}
           turnStartedAt={game.turnStartedAt}
           label="You're giving clues"
@@ -329,14 +357,14 @@ function ClueGiverView({
       <div className="flex gap-4">
         <button
           onClick={handleGuess}
-          disabled={loading || turnEnding}
+          disabled={loading || turnEnding || !connected}
           className="rounded-xl bg-brand-coral px-8 py-3 text-sm font-semibold text-white disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Guessed!
         </button>
         <button
           onClick={handleSkip}
-          disabled={loading || turnEnding}
+          disabled={loading || turnEnding || !connected}
           className="rounded-xl bg-gray-200 px-8 py-3 text-sm font-semibold text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Skip
@@ -361,12 +389,12 @@ function WaitingView({ clueGiverName, onManagePlayers }: { clueGiverName: string
   )
 }
 
-function GuesserView({ clueGiverName, game, clockOffset, clockOffsetReady }: { clueGiverName: string; game: GameSnapshot; clockOffset: number; clockOffsetReady: boolean }) {
+function GuesserView({ clueGiverName, game, clockOffset, clockOffsetReady, visibilitySeq }: { clueGiverName: string; game: GameSnapshot; clockOffset: number; clockOffsetReady: boolean; visibilitySeq: number }) {
   return (
     <div className="mt-8 flex flex-col items-center gap-6 text-center">
       {game.turnStartedAt && (
         <TurnTimer
-          key={clockOffsetReady ? 'synced' : 'unsynced'}
+          key={`${clockOffsetReady ? 'synced' : 'unsynced'}-${visibilitySeq}`}
           duration={game.settings.turnDurationSeconds}
           turnStartedAt={game.turnStartedAt}
           label="Guess the word!"
@@ -387,6 +415,7 @@ function SpectatorView({
   game,
   clockOffset,
   clockOffsetReady,
+  visibilitySeq,
   onManagePlayers,
 }: {
   clueGiverName: string
@@ -394,6 +423,7 @@ function SpectatorView({
   game: GameSnapshot
   clockOffset: number
   clockOffsetReady: boolean
+  visibilitySeq: number
   onManagePlayers?: () => void
 }) {
   const guessed = game.guessedThisTurn ?? []
@@ -402,7 +432,7 @@ function SpectatorView({
     <div className="mt-8 flex flex-col gap-6 text-center">
       {game.turnStartedAt && (
         <TurnTimer
-          key={clockOffsetReady ? 'synced' : 'unsynced'}
+          key={`${clockOffsetReady ? 'synced' : 'unsynced'}-${visibilitySeq}`}
           duration={game.settings.turnDurationSeconds}
           turnStartedAt={game.turnStartedAt}
           label={`${activeTeamName} is playing, don't guess!`}

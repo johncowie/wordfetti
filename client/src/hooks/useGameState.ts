@@ -4,6 +4,7 @@ import type { GameSnapshot } from '@wordfetti/shared'
 export function useGameState(joinCode: string | undefined) {
   const [game, setGame] = useState<GameSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [connected, setConnected] = useState(false)
 
   useEffect(() => {
     if (!joinCode) return
@@ -24,14 +25,19 @@ export function useGameState(joinCode: string | undefined) {
   useEffect(() => {
     if (!joinCode) return
     const es = new EventSource(`/api/games/${joinCode}/events`)
+    es.onopen = () => setConnected(true)
     es.onmessage = (event) => {
       setGame(JSON.parse(event.data) as GameSnapshot)
     }
-    es.onerror = (event) => {
-      console.warn(`[game] SSE connection error for game ${joinCode}`, event)
+    es.onerror = () => {
+      console.warn(`[game] SSE connection error for game ${joinCode}`)
+      setConnected(false)
     }
-    return () => es.close()
+    return () => {
+      es.close()
+      setConnected(false)
+    }
   }, [joinCode])
 
-  return { game, error }
+  return { game, setGame, error, connected }
 }
