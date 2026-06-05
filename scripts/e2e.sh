@@ -42,21 +42,20 @@ CLIENT_PID=""
 SERVER_PID=""
 LOG_DIR="$(mktemp -d)"
 
-# Kill a process and all its descendants. Only touches PIDs we own.
-kill_tree() {
+# Kill an entire process group by PGID.
+# Using setsid below gives each server its own group, so PGID == the PID we
+# captured. All descendants inherit that group ID regardless of reparenting,
+# so kill -- -$PID reliably reaches tsx/vite/node children even if the pnpm
+# wrapper has already exited and they've been orphaned.
+kill_group() {
   local pid=$1
-  local children
-  children=$(pgrep -P "$pid" 2>/dev/null || true)
-  for child in $children; do
-    kill_tree "$child"
-  done
-  kill "$pid" 2>/dev/null || true
+  kill -- -"$pid" 2>/dev/null || true
 }
 
 cleanup() {
   echo "Stopping dev servers..."
-  [ -n "$SERVER_PID" ] && kill_tree "$SERVER_PID"
-  [ -n "$CLIENT_PID" ] && kill_tree "$CLIENT_PID"
+  [ -n "$SERVER_PID" ] && kill_group "$SERVER_PID"
+  [ -n "$CLIENT_PID" ] && kill_group "$CLIENT_PID"
   wait 2>/dev/null || true
   rm -rf "$LOG_DIR"
 }
@@ -64,13 +63,13 @@ trap cleanup EXIT
 
 cd "$ROOT_DIR"
 
-# Start API server
-PORT=$SERVER_PORT pnpm --filter server dev >"$LOG_DIR/server.log" 2>&1 &
+# setsid puts each server in a fresh process group (PGID = its own PID).
+# This guarantees kill_group can reach every descendant.
+PORT=$SERVER_PORT setsid pnpm --filter server dev >"$LOG_DIR/server.log" 2>&1 &
 SERVER_PID=$!
 
-# Start Vite client
 VITE_PORT="$CLIENT_PORT" VITE_API_URL="http://localhost:$SERVER_PORT" \
-  pnpm --filter client dev >"$LOG_DIR/client.log" 2>&1 &
+  setsid pnpm --filter client dev >"$LOG_DIR/client.log" 2>&1 &
 CLIENT_PID=$!
 
 # ── Wait for servers to be ready ──────────────────────────────────────────────
