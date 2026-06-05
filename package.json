@@ -11,6 +11,11 @@
     "zombie": "tsx scripts/test-driver.ts",
     "e2e": "bash scripts/e2e.sh"
   },
+  "pnpm": {
+    "overrides": {
+      "@types/node": "^25.0.0"
+    }
+  },
   "devDependencies": {
     "@types/eventsource": "^3.0.0",
     "concurrently": "^9.0.0",
