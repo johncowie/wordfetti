@@ -7,7 +7,7 @@
     "build": "pnpm --filter shared build && pnpm --filter server build && pnpm --filter client build",
     "test": "pnpm --filter server test && pnpm --filter client test",
     "typecheck": "pnpm --filter shared typecheck && pnpm --filter server typecheck && pnpm --filter client typecheck",
-    "check": "pnpm --filter shared build && pnpm typecheck && pnpm test && pnpm build",
+    "check": "pnpm --filter shared build && pnpm typecheck && pnpm test && pnpm build && pnpm e2e",
     "zombie": "tsx scripts/test-driver.ts",
     "e2e": "bash scripts/e2e.sh"
   },
